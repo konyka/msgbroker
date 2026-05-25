@@ -40,6 +40,7 @@ set(MB_TEST_SOURCES
     unit/test_sendmsg.c
     unit/test_cmsg.c
     unit/test_coro_io.c
+    unit/test_timeout.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})

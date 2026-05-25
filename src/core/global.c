@@ -8,6 +8,7 @@
 #include "../memory/msg.h"
 #include "../pal/mutex.h"
 #include "../pal/condvar.h"
+#include "../pal/sleep.h"
 #include "../distributed/cluster.h"
 #include "../aio/coroutine.h"
 
@@ -16,6 +17,7 @@
 #include "ep.h"
 
 #include <msgbroker/mb.h>
+#include <mb_config.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,6 +193,11 @@ void mb_term (void)
     mb_condvar_broadcast (&g_self.cond);
     mb_mutex_unlock (&g_self.lock);
 }
+
+int mb_version_major (void) { return MB_VERSION_MAJOR; }
+int mb_version_minor (void) { return MB_VERSION_MINOR; }
+int mb_version_patch (void) { return MB_VERSION_PATCH; }
+const char *mb_version_string (void) { return MB_VERSION_STRING; }
 
 static int mb_global_create_socket (int domain, int protocol)
 {
@@ -456,14 +463,15 @@ int mb_send (int s, const void *buf, size_t len, int flags)
     int rc;
     struct mb_sock *sock;
     struct mb_msg msg;
-
-    (void) flags;
+    int timeout;
 
     rc = mb_global_hold_socket (&sock, s);
     if (rc < 0) {
         mb_err_set_errno (-rc);
         return -1;
     }
+
+    timeout = sock->sndtimeo;
 
     mb_msg_init_data (&msg, buf, len);
     if (len > MB_CHUNKREF_MAX && !mb_chunkref_data (&msg.body)) {
@@ -473,7 +481,37 @@ int mb_send (int s, const void *buf, size_t len, int flags)
         return -1;
     }
 
-    rc = mb_sock_send (sock, &msg);
+    for (;;) {
+        rc = mb_sock_send (sock, &msg);
+        if (rc >= 0)
+            break;
+        if (rc != -EAGAIN)
+            break;
+        mb_msg_term (&msg);
+        if (flags & MB_DONTWAIT || timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            mb_msleep (1);
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (EAGAIN);
+                return -1;
+            }
+        } else {
+            mb_msleep (1);
+        }
+        mb_msg_init_data (&msg, buf, len);
+        if (len > MB_CHUNKREF_MAX && !mb_chunkref_data (&msg.body)) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (ENOMEM);
+            return -1;
+        }
+    }
+
     if (rc < 0)
         mb_msg_term (&msg);
 
@@ -492,8 +530,7 @@ int mb_recv (int s, void *buf, size_t len, int flags)
     struct mb_sock *sock;
     struct mb_msg msg;
     size_t msglen;
-
-    (void) flags;
+    int timeout;
 
     rc = mb_global_hold_socket (&sock, s);
     if (rc < 0) {
@@ -501,16 +538,39 @@ int mb_recv (int s, void *buf, size_t len, int flags)
         return -1;
     }
 
-    mb_msg_init (&msg, 0);
-    rc = mb_sock_recv (sock, &msg);
+    timeout = sock->rcvtimeo;
+
+    for (;;) {
+        mb_msg_init (&msg, 0);
+        rc = mb_sock_recv (sock, &msg);
+
+        if (rc >= 0)
+            break;
+        mb_msg_term (&msg);
+        if (rc != -EAGAIN) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (-rc);
+            return -1;
+        }
+        if (flags & MB_DONTWAIT || timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            mb_msleep (1);
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (EAGAIN);
+                return -1;
+            }
+        } else {
+            mb_msleep (1);
+        }
+    }
 
     mb_global_rele_socket (sock);
-
-    if (rc < 0) {
-        mb_msg_term (&msg);
-        mb_err_set_errno (-rc);
-        return -1;
-    }
 
     msglen = mb_chunkref_size (&msg.body);
     if (msglen > 0) {

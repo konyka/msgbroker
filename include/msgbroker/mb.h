@@ -347,6 +347,15 @@ MB_EXPORT uint64_t mb_get_statistic (int s, int stat);
 MB_EXPORT void mb_term (void);
 
 /******************************************************************************/
+/*  Version information.                                                      */
+/******************************************************************************/
+
+MB_EXPORT int mb_version_major (void);
+MB_EXPORT int mb_version_minor (void);
+MB_EXPORT int mb_version_patch (void);
+MB_EXPORT const char *mb_version_string (void);
+
+/******************************************************************************/
 /*  Coroutine-friendly I/O.                                                   */
 /******************************************************************************/
 

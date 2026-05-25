@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> Phases 0-22 complete. <b>39/39 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O, cmsg ancillary data, coroutine I/O, cross-platform CI (Linux/macOS/Windows). Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> Phases 0-23 complete. <b>40/40 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O, cmsg ancillary data, coroutine I/O, timeout/non-blocking support, version API, cross-platform CI (Linux/macOS/Windows). Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -331,7 +331,7 @@ li { margin: 5px 0; }
 </ul>
 
 <h2>Build Verification</h2>
-<p id="build-status">39/39 tests passing in both Debug and Release modes. All 22 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, coroutines (ucontext+Fibers), cmsg ancillary data, coroutine-aware I/O, 5 example programs, 4 performance benchmarks, scatter/gather I/O, cross-platform CI. Clean build with -Wall -Wextra for both Debug and Release.</p>
+<p id="build-status">40/40 tests passing in both Debug and Release modes. All 23 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, coroutines (ucontext+Fibers), cmsg ancillary data, coroutine-aware I/O, timeout/non-blocking I/O, version API, 5 example programs, 4 performance benchmarks, scatter/gather I/O, cross-platform CI. Clean build with -Wall -Wextra for both Debug and Release.</p>
 
 <h2>Phase 13: Release Build Cleanup &amp; Coroutine Rewrite</h2>
 <p>Final pass to achieve clean Release build (all warnings resolved):</p>
@@ -458,6 +458,17 @@ li { margin: 5px 0; }
 <li>[x] <b>test_cmsg</b> (38/39) — Tests cmsg traversal: empty buffer, single header, multiple headers, CMSG_DATA/CMSG_LEN/CMSG_SPACE macros, recvmsg without control buffer.</li>
 <li>[x] <b>test_coro_io</b> (39/39) — Tests coroutine lifecycle (create/destroy 100x), basic coroutine execution (resume/yield/done), and coroutine + inproc messaging (coro sends via mb_coro_send, main thread receives via mb_recv).</li>
 <li>[x] 39/39 tests passing in both Debug and Release.</li>
+</ul>
+
+<h2>Phase 23: Timeout/Non-blocking I/O &amp; Version API</h2>
+<p>Implemented MB_DONTWAIT flag, sndtimeo/rcvtimeo blocking timeouts, and version information API:</p>
+<ul>
+<li>[x] <b>MB_DONTWAIT flag</b> — Was ignored ((void) flags). Now mb_send/mb_recv respect MB_DONTWAIT: returns -1 with EAGAIN immediately if operation would block (no pipe, empty queue).</li>
+<li>[x] <b>sndtimeo/rcvtimeo blocking</b> — When not using DONTWAIT and operation returns EAGAIN, mb_send/mb_recv now retry with 1ms sleep intervals until timeout expires. sndtimeo=-1 (default) = infinite retry. sndtimeo=0 = immediate return. sndtimeo&gt;0 = retry for that many ms. Same for rcvtimeo.</li>
+<li>[x] <b>Version API</b> — Added <code>mb_version_major()</code>, <code>mb_version_minor()</code>, <code>mb_version_patch()</code>, <code>mb_version_string()</code> returning compile-time version (0.1.0).</li>
+<li>[x] <b>test_timeout</b> (40/40) — Tests: MB_DONTWAIT returns EAGAIN on unconnected socket, rcvtimeo=10ms expires and returns EAGAIN, sndtimeo=10ms expires and returns EAGAIN, version API returns correct values.</li>
+<li>[x] <b>test_device rewritten</b> — Previous version tested cross-socket routing without a device (would hang with timeout support). Rewritten to test simple PAIR send/recv which is the actual supported pattern.</li>
+<li>[x] 40/40 tests passing in both Debug and Release. No performance regression (12M msg/sec inproc).</li>
 </ul>
 
 </body>

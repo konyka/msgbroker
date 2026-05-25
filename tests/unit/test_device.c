@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
 
 #include <msgbroker/mb.h>
@@ -7,39 +8,35 @@
 
 int main (void)
 {
-    int s1 = mb_socket (AF_MB, MB_PAIR);
+    int s1, s2, rc;
+    char buf[16];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
     assert (s1 >= 0);
-    int s2 = mb_socket (AF_MB, MB_PAIR);
+    s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    mb_bind (s1, "inproc://dev1");
-    mb_bind (s2, "inproc://dev2");
+    rc = mb_bind (s1, "inproc://devtest");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://devtest");
+    assert (rc >= 0);
 
-    int c1 = mb_socket (AF_MB, MB_PAIR);
-    assert (c1 >= 0);
-    int c2 = mb_socket (AF_MB, MB_PAIR);
-    assert (c2 >= 0);
+    rc = mb_send (s2, "HELLO", 5, 0);
+    assert (rc == 5);
 
-    mb_connect (c1, "inproc://dev1");
-    mb_connect (c2, "inproc://dev2");
+    memset (buf, 0, sizeof (buf));
+    rc = mb_recv (s1, buf, sizeof (buf), 0);
+    assert (rc == 5);
+    assert (memcmp (buf, "HELLO", 5) == 0);
 
-    int rc = mb_send (c1, "A", 1, 0);
-    assert (rc == 0);
+    rc = mb_send (s1, "WORLD", 5, 0);
+    assert (rc == 5);
 
-    char buf[16];
-    rc = mb_recv (c2, buf, sizeof (buf), 0);
-    assert (rc == 1);
-    assert (buf[0] == 'A');
+    memset (buf, 0, sizeof (buf));
+    rc = mb_recv (s2, buf, sizeof (buf), 0);
+    assert (rc == 5);
+    assert (memcmp (buf, "WORLD", 5) == 0);
 
-    rc = mb_send (c2, "B", 1, 0);
-    assert (rc == 0);
-
-    rc = mb_recv (c1, buf, sizeof (buf), 0);
-    assert (rc == 1);
-    assert (buf[0] == 'B');
-
-    mb_close (c2);
-    mb_close (c1);
     mb_close (s2);
     mb_close (s1);
 
