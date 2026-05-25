@@ -1,0 +1,132 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
+#include <unistd.h>
+
+#include <msgbroker/mb.h>
+#include <msgbroker/mb_reqrep.h>
+
+/*  REQ->REP: send request, receive reply. */
+static void test_reqrep_inproc (void)
+{
+    int req, rep;
+    int rc;
+    char buf[64];
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "inproc://reqrep1");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://reqrep1");
+    assert (rc >= 0);
+
+    /*  REQ sends request. */
+    rc = mb_send (req, "REQ1", 4, 0);
+    assert (rc == 4);
+
+    /*  REP receives request. */
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 4);
+    assert (memcmp (buf, "REQ1", 4) == 0);
+
+    /*  REP sends reply. */
+    rc = mb_send (rep, "REP1", 4, 0);
+    assert (rc == 4);
+
+    /*  REQ receives reply. */
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc == 4);
+    assert (memcmp (buf, "REP1", 4) == 0);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_reqrep_inproc: PASSED\n");
+}
+
+/*  REQ->REP via TCP. */
+static void test_reqrep_tcp (void)
+{
+    int req, rep;
+    int rc;
+    char buf[64];
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "tcp://127.0.0.1:19877");
+    assert (rc >= 0);
+    rc = mb_connect (req, "tcp://127.0.0.1:19877");
+    assert (rc >= 0);
+
+    usleep (200000);
+
+    rc = mb_send (req, "HELLO", 5, 0);
+    assert (rc == 5);
+
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 5);
+    assert (memcmp (buf, "HELLO", 5) == 0);
+
+    rc = mb_send (rep, "WORLD", 5, 0);
+    assert (rc == 5);
+
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc == 5);
+    assert (memcmp (buf, "WORLD", 5) == 0);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_reqrep_tcp: PASSED\n");
+}
+
+/*  REQ state machine: cannot recv before send. */
+static void test_reqrecv_before_send (void)
+{
+    int req, rep;
+    char buf[64];
+    int rc;
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "inproc://reqrep_fsm");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://reqrep_fsm");
+    assert (rc >= 0);
+
+    /*  Recv before send should return EFSM. */
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc < 0);
+    assert (mb_errno () == EFSM);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_reqrecv_before_send: PASSED\n");
+}
+
+int main (void)
+{
+    printf ("REQ/REP protocol tests:\n");
+    test_reqrep_inproc ();
+    test_reqrep_tcp ();
+    test_reqrecv_before_send ();
+    printf ("All REQ/REP tests passed.\n");
+    return 0;
+}

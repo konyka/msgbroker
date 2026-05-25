@@ -1,0 +1,31 @@
+#include "../../src/memory/arena.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <string.h>
+
+int main (void)
+{
+    struct mb_arena arena;
+    mb_arena_init (&arena, 256);
+
+    void *p1 = mb_arena_alloc (&arena, 100);
+    assert (p1 != NULL);
+    memset (p1, 'A', 100);
+
+    void *p2 = mb_arena_alloc (&arena, 100);
+    assert (p2 != NULL);
+    assert (p1 != p2);
+
+    void *p3 = mb_arena_alloc (&arena, 200);
+    assert (p3 != NULL);
+
+    mb_arena_reset (&arena);
+    void *p4 = mb_arena_alloc (&arena, 50);
+    assert (p4 != NULL);
+
+    mb_arena_term (&arena);
+    printf ("test_arena: PASSED\n");
+    return 0;
+}
