@@ -1,0 +1,1 @@
+/* stub: ws_handshake */
