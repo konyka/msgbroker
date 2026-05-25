@@ -454,17 +454,13 @@ int mb_send (int s, const void *buf, size_t len, int flags)
         return -1;
     }
 
-    mb_msg_init (&msg, len);
-    if (len > 0 && len > MB_CHUNKREF_MAX) {
-        if (!mb_chunkref_data (&msg.body)) {
-            mb_msg_term (&msg);
-            mb_global_rele_socket (sock);
-            mb_err_set_errno (ENOMEM);
-            return -1;
-        }
+    mb_msg_init_data (&msg, buf, len);
+    if (len > MB_CHUNKREF_MAX && !mb_chunkref_data (&msg.body)) {
+        mb_msg_term (&msg);
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (ENOMEM);
+        return -1;
     }
-    if (len > 0)
-        memcpy (mb_chunkref_data (&msg.body), buf, len);
 
     rc = mb_sock_send (sock, &msg);
     if (rc < 0)

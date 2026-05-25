@@ -143,8 +143,8 @@ int main (void)
 |-----------|----------|------------|---------|
 | inproc_thr (PAIR) | 1,000,000 | 12.2M msg/sec (744 MB/sec) | 0.08 us round-trip |
 | inproc_lat (PAIR) | 100,000 | 12.5M msg/sec | 0.04 us one-way |
-| tcp_thr (PAIR, loopback) | 100,000 | 163K msg/sec (9.9 MB/sec) | 6.15 us round-trip |
-| tcp_lat (PAIR, loopback) | 100,000 | 158K msg/sec | 3.15 us one-way |
+| tcp_thr (PAIR, loopback) | 100,000 | 159K msg/sec (9.7 MB/sec) | 6.27 us round-trip |
+| tcp_lat (PAIR, loopback) | 100,000 | 159K msg/sec | 3.14 us one-way |
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DMB_BUILD_PERF=ON

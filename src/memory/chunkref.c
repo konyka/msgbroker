@@ -39,6 +39,13 @@ void mb_chunkref_term (struct mb_chunkref *self)
 
 void mb_chunkref_mv (struct mb_chunkref *dst, struct mb_chunkref *src)
 {
+    if (src->size == 0) {
+        dst->size = 0;
+        dst->u.chunk = NULL;
+        src->size = 0;
+        src->u.chunk = NULL;
+        return;
+    }
     memcpy (dst, src, sizeof (struct mb_chunkref));
     src->size = 0;
     src->u.chunk = NULL;

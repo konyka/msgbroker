@@ -18,6 +18,7 @@
 
 void mb_efd_init (struct mb_efd *self)
 {
+    self->watched = 0;
 #if defined _WIN32
     self->event = CreateEvent (NULL, TRUE, FALSE, NULL);
 #elif defined MB_HAVE_EVENTFD
@@ -44,6 +45,7 @@ void mb_efd_term (struct mb_efd *self)
 
 int mb_efd_getfd (struct mb_efd *self)
 {
+    self->watched = 1;
 #if defined _WIN32
     return -1;
 #elif defined MB_HAVE_EVENTFD
@@ -55,6 +57,8 @@ int mb_efd_getfd (struct mb_efd *self)
 
 void mb_efd_signal (struct mb_efd *self)
 {
+    if (!self->watched)
+        return;
 #if defined _WIN32
     SetEvent (self->event);
 #elif defined MB_HAVE_EVENTFD
