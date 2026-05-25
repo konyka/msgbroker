@@ -434,10 +434,20 @@ int mb_connect (int s, const char *addr)
 
 int mb_shutdown (int s, int how)
 {
-    (void) s;
+    struct mb_sock *sock;
+    int rc;
+
     (void) how;
-    mb_err_set_errno (ENOTSUP);
-    return -1;
+
+    rc = mb_global_hold_socket (&sock, s);
+    if (rc < 0) {
+        mb_err_set_errno (-rc);
+        return -1;
+    }
+
+    mb_sock_stop (sock);
+    mb_global_rele_socket (sock);
+    return 0;
 }
 
 int mb_send (int s, const void *buf, size_t len, int flags)

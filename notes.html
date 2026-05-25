@@ -437,5 +437,15 @@ li { margin: 5px 0; }
 <li>[x] 37/37 tests passing in both Debug and Release.</li>
 </ul>
 
+<h2>Phase 21: Build System &amp; API Completeness</h2>
+<p>Verified and hardened the build/install system and fixed remaining API stubs:</p>
+<ul>
+<li>[x] <b>CMake install targets verified</b> — <code>make install</code> correctly installs: shared library (<code>libmsgbroker.so</code>), static library (<code>libmsgbroker.a</code>), public headers (<code>include/msgbroker/*.h</code>), config header (<code>mb_config.h</code>), and pkg-config file (<code>lib64/pkgconfig/msgbroker.pc</code>). All already present from earlier phases.</li>
+<li>[x] <b>pkg-config verified</b> — <code>pkg-config --cflags --libs msgbroker</code> produces correct output. Consumers can use <code>$(pkg-config --cflags --libs msgbroker)</code> in their build.</li>
+<li>[x] <b>mb_shutdown implemented</b> — Was returning <code>ENOTSUP</code>. Now properly holds the socket, calls <code>mb_sock_stop()</code> to initiate graceful FSM shutdown, and releases. The <code>how</code> parameter is reserved for future direction-specific shutdown.</li>
+<li>[x] <b>API gap analysis</b> — Reviewed all public API functions. Remaining stubs: <code>mb_cmsg_nxthdr_</code> (returns NULL — ancillary data not needed for SP protocol), <code>mb_coro_send/recv</code> (thin wrappers — coroutine-aware waiting requires thread-local context tracking, deferred). These are low priority and correctly documented.</li>
+<li>[x] 37/37 tests passing in both Debug and Release.</li>
+</ul>
+
 </body>
 </html>
