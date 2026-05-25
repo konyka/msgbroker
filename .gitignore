@@ -53,3 +53,16 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Build directories
+build/
+build-*/
+
+# Generated files
+mb_config.h
+
+# IDE / tool directories
+.sisyphus/
+.vscode/
+.idea/
+cmake-build-*/

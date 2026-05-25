@@ -1,0 +1,20 @@
+#ifndef MB_CONFIG_H
+#define MB_CONFIG_H
+
+#cmakedefine MB_HAVE_EPOLL 1
+#cmakedefine MB_HAVE_KQUEUE 1
+#cmakedefine MB_HAVE_IOURING 1
+#cmakedefine MB_HAVE_WINDOWS 1
+#cmakedefine MB_HAVE_POLL 1
+#cmakedefine MB_HAVE_EVENTFD 1
+#cmakedefine MB_HAVE_PIPE2 1
+#cmakedefine MB_HAVE_SOCKETPAIR 1
+
+#cmakedefine MB_HAVE_STDATOMIC 1
+
+#define MB_VERSION_MAJOR @MB_VERSION_MAJOR@
+#define MB_VERSION_MINOR @MB_VERSION_MINOR@
+#define MB_VERSION_PATCH @MB_VERSION_PATCH@
+#define MB_VERSION_STRING "@MB_VERSION_MAJOR@.@MB_VERSION_MINOR@.@MB_VERSION_PATCH@"
+
+#endif
