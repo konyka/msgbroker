@@ -38,5 +38,6 @@ void mb_coro_destroy (struct mb_coro *coro);
 int mb_coro_resume (struct mb_coro *coro);
 void mb_coro_yield (struct mb_coro *coro);
 int mb_coro_done (struct mb_coro *coro);
+struct mb_coro *mb_coro_current (void);
 
 #endif

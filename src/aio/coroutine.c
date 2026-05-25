@@ -158,3 +158,8 @@ int mb_coro_done (struct mb_coro *coro)
 {
     return coro->state == MB_CORO_DONE;
 }
+
+struct mb_coro *mb_coro_current (void)
+{
+    return g_current_coro;
+}

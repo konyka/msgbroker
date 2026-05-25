@@ -9,6 +9,7 @@
 #include "../pal/mutex.h"
 #include "../pal/condvar.h"
 #include "../distributed/cluster.h"
+#include "../aio/coroutine.h"
 
 #include "global.h"
 #include "sock.h"
@@ -528,6 +529,7 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
     size_t total;
     int i;
     char *ptr;
+    struct mb_cmsghdr *cmsg;
 
     (void) flags;
 
@@ -562,6 +564,21 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
         }
     }
 
+    if (msghdr->msg_control && msghdr->msg_controllen > 0) {
+        for (cmsg = MB_CMSG_FIRSTHDR (msghdr); cmsg;
+             cmsg = MB_CMSG_NXTHDR (msghdr, cmsg)) {
+            if (cmsg->cmsg_level == PROTO_SP && cmsg->cmsg_type == SP_HDR) {
+                size_t hdrlen = cmsg->cmsg_len - MB_CMSG_LEN (0);
+                if (hdrlen > 0) {
+                    mb_chunkref_term (&msg.sphdr);
+                    mb_chunkref_init (&msg.sphdr, hdrlen);
+                    memcpy (mb_chunkref_data (&msg.sphdr),
+                        MB_CMSG_DATA (cmsg), hdrlen);
+                }
+            }
+        }
+    }
+
     rc = mb_sock_send (sock, &msg);
     if (rc < 0)
         mb_msg_term (&msg);
@@ -584,6 +601,8 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
     size_t written;
     int i;
     const char *ptr;
+    size_t sphdrlen;
+    struct mb_cmsghdr *cmsg;
 
     (void) flags;
 
@@ -622,6 +641,26 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
         }
     }
 
+    if (msghdr->msg_control && msghdr->msg_controllen > 0) {
+        sphdrlen = mb_chunkref_size (&msg.sphdr);
+        if (sphdrlen > 0) {
+            size_t needed = MB_CMSG_SPACE (sphdrlen);
+            if (needed <= msghdr->msg_controllen) {
+                cmsg = (struct mb_cmsghdr *) msghdr->msg_control;
+                cmsg->cmsg_len = MB_CMSG_LEN (sphdrlen);
+                cmsg->cmsg_level = PROTO_SP;
+                cmsg->cmsg_type = SP_HDR;
+                memcpy (MB_CMSG_DATA (cmsg),
+                    mb_chunkref_data (&msg.sphdr), sphdrlen);
+                msghdr->msg_controllen = needed;
+            } else {
+                msghdr->msg_controllen = 0;
+            }
+        } else {
+            msghdr->msg_controllen = 0;
+        }
+    }
+
     mb_msg_term (&msg);
     return (int) msglen;
 }
@@ -654,9 +693,29 @@ int mb_freemsg (void *msg)
 struct mb_cmsghdr *mb_cmsg_nxthdr_ (const struct mb_msghdr *mhdr,
     const struct mb_cmsghdr *cmsg)
 {
-    (void) mhdr;
-    (void) cmsg;
-    return NULL;
+    const unsigned char *ptr;
+    const unsigned char *end;
+    struct mb_cmsghdr *next;
+
+    if (!mhdr || !mhdr->msg_control || mhdr->msg_controllen < sizeof (struct mb_cmsghdr))
+        return NULL;
+
+    end = (const unsigned char *) mhdr->msg_control + mhdr->msg_controllen;
+
+    if (!cmsg) {
+        ptr = (const unsigned char *) mhdr->msg_control;
+    } else {
+        ptr = (const unsigned char *) cmsg + MB_CMSG_ALIGN_(cmsg->cmsg_len);
+    }
+
+    if (ptr + sizeof (struct mb_cmsghdr) > end)
+        return NULL;
+
+    next = (struct mb_cmsghdr *) ptr;
+    if (ptr + MB_CMSG_ALIGN_(next->cmsg_len) > end)
+        return NULL;
+
+    return next;
 }
 
 uint64_t mb_get_statistic (int s, int stat)
@@ -675,12 +734,40 @@ uint64_t mb_get_statistic (int s, int stat)
 
 int mb_coro_send (int s, const void *buf, size_t len)
 {
-    return mb_send (s, buf, len, 0);
+    int rc;
+    struct mb_coro *coro;
+
+    coro = mb_coro_current ();
+    if (!coro)
+        return mb_send (s, buf, len, 0);
+
+    for (;;) {
+        rc = mb_send (s, buf, len, MB_DONTWAIT);
+        if (rc >= 0)
+            return rc;
+        if (mb_errno () != EAGAIN)
+            return -1;
+        mb_coro_yield (NULL);
+    }
 }
 
 int mb_coro_recv (int s, void *buf, size_t len)
 {
-    return mb_recv (s, buf, len, 0);
+    int rc;
+    struct mb_coro *coro;
+
+    coro = mb_coro_current ();
+    if (!coro)
+        return mb_recv (s, buf, len, 0);
+
+    for (;;) {
+        rc = mb_recv (s, buf, len, MB_DONTWAIT);
+        if (rc >= 0)
+            return rc;
+        if (mb_errno () != EAGAIN)
+            return -1;
+        mb_coro_yield (NULL);
+    }
 }
 
 struct mb_pool *mb_global_pool (void)

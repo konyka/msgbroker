@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> Phases 0-19 complete. <b>37/37 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O, cross-platform CI (Linux/macOS/Windows). Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> Phases 0-22 complete. <b>39/39 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O, cmsg ancillary data, coroutine I/O, cross-platform CI (Linux/macOS/Windows). Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -331,7 +331,7 @@ li { margin: 5px 0; }
 </ul>
 
 <h2>Build Verification</h2>
-<p id="build-status">37/37 tests passing in both Debug and Release modes. All 19 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, coroutines (ucontext+Fibers), 5 example programs, 4 performance benchmarks, scatter/gather I/O, cross-platform CI. Clean build with -Wall -Wextra for both Debug and Release.</p>
+<p id="build-status">39/39 tests passing in both Debug and Release modes. All 22 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, coroutines (ucontext+Fibers), cmsg ancillary data, coroutine-aware I/O, 5 example programs, 4 performance benchmarks, scatter/gather I/O, cross-platform CI. Clean build with -Wall -Wextra for both Debug and Release.</p>
 
 <h2>Phase 13: Release Build Cleanup &amp; Coroutine Rewrite</h2>
 <p>Final pass to achieve clean Release build (all warnings resolved):</p>
@@ -445,6 +445,19 @@ li { margin: 5px 0; }
 <li>[x] <b>mb_shutdown implemented</b> — Was returning <code>ENOTSUP</code>. Now properly holds the socket, calls <code>mb_sock_stop()</code> to initiate graceful FSM shutdown, and releases. The <code>how</code> parameter is reserved for future direction-specific shutdown.</li>
 <li>[x] <b>API gap analysis</b> — Reviewed all public API functions. Remaining stubs: <code>mb_cmsg_nxthdr_</code> (returns NULL — ancillary data not needed for SP protocol), <code>mb_coro_send/recv</code> (thin wrappers — coroutine-aware waiting requires thread-local context tracking, deferred). These are low priority and correctly documented.</li>
 <li>[x] 37/37 tests passing in both Debug and Release.</li>
+</ul>
+
+<h2>Phase 22: Ancillary Data (cmsg) &amp; Coroutine I/O</h2>
+<p>Implemented the two remaining API gaps: cmsg ancillary data for SP header pass-through and coroutine-aware send/recv:</p>
+<ul>
+<li>[x] <b>mb_cmsg_nxthdr_()</b> — Was returning NULL. Now properly traverses <code>msg_control</code> buffer to iterate ancillary data headers. Follows POSIX CMSG_FIRSTHDR/CMSG_NXTHDR semantics with alignment.</li>
+<li>[x] <b>sendmsg cmsg support</b> — <code>mb_sendmsg()</code> now inspects <code>msg_control</code> for <code>PROTO_SP/SP_HDR</code> ancillary data and copies it into the message's <code>sphdr</code> chunkref.</li>
+<li>[x] <b>recvmsg cmsg support</b> — <code>mb_recvmsg()</code> now writes the message's <code>sphdr</code> (if non-empty) as a <code>PROTO_SP/SP_HDR</code> cmsg entry into the caller's <code>msg_control</code> buffer.</li>
+<li>[x] <b>mb_coro_send/recv</b> — Was thin wrappers around <code>mb_send/mb_recv</code>. Now coroutine-aware: detects current coroutine context via <code>mb_coro_current()</code>, and if inside a coroutine, retries with <code>MB_DONTWAIT</code> on <code>EAGAIN</code> with <code>mb_coro_yield(NULL)</code> between retries. Falls back to blocking <code>mb_send/mb_recv</code> when not in a coroutine.</li>
+<li>[x] <b>mb_coro_current()</b> — New function returning the thread-local current coroutine pointer (exposed from coroutine.c's <code>g_current_coro</code>).</li>
+<li>[x] <b>test_cmsg</b> (38/39) — Tests cmsg traversal: empty buffer, single header, multiple headers, CMSG_DATA/CMSG_LEN/CMSG_SPACE macros, recvmsg without control buffer.</li>
+<li>[x] <b>test_coro_io</b> (39/39) — Tests coroutine lifecycle (create/destroy 100x), basic coroutine execution (resume/yield/done), and coroutine + inproc messaging (coro sends via mb_coro_send, main thread receives via mb_recv).</li>
+<li>[x] 39/39 tests passing in both Debug and Release.</li>
 </ul>
 
 </body>

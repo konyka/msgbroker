@@ -38,6 +38,8 @@ set(MB_TEST_SOURCES
     unit/test_distributed.c
     unit/test_strerror.c
     unit/test_sendmsg.c
+    unit/test_cmsg.c
+    unit/test_coro_io.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})
