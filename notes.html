@@ -471,5 +471,14 @@ li { margin: 5px 0; }
 <li>[x] 40/40 tests passing in both Debug and Release. No performance regression (12M msg/sec inproc).</li>
 </ul>
 
+<h2>Phase 24: Final Documentation &amp; Polish</h2>
+<p>Updated README.md to reflect all 23 phases of implementation:</p>
+<ul>
+<li>[x] <b>README rewritten</b> — Updated coroutine description (ucontext/Fibers, not setjmp/longjmp). Added complete API reference: Messaging (send/recv/sendmsg/recvmsg), Socket Options (sndtimeo/rcvtimeo/sndbuf/rcvbuf/sndfd/rcvfd), Send/Recv Flags (MB_DONTWAIT), Multiplexing (poll/device), Version &amp; Utilities (errno/strerror/version/term), Cluster (join/leave/route).</li>
+<li>[x] <b>Install section</b> — Added <code>cmake --install</code> and <code>pkg-config</code> usage.</li>
+<li>[x] <b>Test count</b> — Updated from 37 to 40 tests.</li>
+<li>[x] 40/40 tests passing in both Debug and Release.</li>
+</ul>
+
 </body>
 </html>

@@ -12,7 +12,7 @@ A complete reimplementation of the nanomsg SP protocol family with memory pools,
 - **io_uring** — Runtime detection with automatic fallback to epoll on Linux
 - **Memory Pool** — Custom allocator with slab/arena/chunkref for zero-copy messaging
 - **Thread Pool** — Per-worker event loops with task queues
-- **Coroutines** — Stackful ucontext-based cooperative scheduling (setjmp/longjmp replaced)
+- **Coroutines** — Stackful ucontext (Unix) / Win32 Fibers cooperative scheduling
 - **Distributed** — SWIM gossip membership, UDP multicast discovery, consistent hashing ring, cluster routing
 
 ## Build
@@ -23,7 +23,14 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-### Options
+### Install
+
+```bash
+cmake --install build --prefix=/usr/local
+pkg-config --cflags --libs msgbroker
+```
+
+### Build Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -69,8 +76,40 @@ int main (void)
 | `mb_close(s)` | Close a socket |
 | `mb_bind(s, addr)` | Bind to address |
 | `mb_connect(s, addr)` | Connect to address |
-| `mb_send(s, buf, len, 0)` | Send a message |
-| `mb_recv(s, buf, len, 0)` | Receive a message |
+| `mb_shutdown(s, how)` | Shutdown socket direction |
+
+### Messaging
+
+| Function | Description |
+|----------|-------------|
+| `mb_send(s, buf, len, flags)` | Send a message |
+| `mb_recv(s, buf, len, flags)` | Receive a message |
+| `mb_sendmsg(s, msghdr, flags)` | Scatter/gather send |
+| `mb_recvmsg(s, msghdr, flags)` | Scatter/gather receive with cmsg |
+| `mb_coro_send(s, buf, len)` | Coroutine-aware send |
+| `mb_coro_recv(s, buf, len)` | Coroutine-aware recv |
+
+### Socket Options
+
+| Function | Description |
+|----------|-------------|
+| `mb_setsockopt(s, level, opt, val, len)` | Set socket option |
+| `mb_getsockopt(s, level, opt, val, len)` | Get socket option |
+
+Key options: `MB_SNDTIMEO`, `MB_RCVTIMEO`, `MB_SNDBUF`, `MB_RCVBUF`, `MB_SNDFD`, `MB_RCVFD`
+
+### Send/Recv Flags
+
+| Flag | Description |
+|------|-------------|
+| `MB_DONTWAIT` | Non-blocking operation |
+
+### Multiplexing
+
+| Function | Description |
+|----------|-------------|
+| `mb_poll(fds, nfds, timeout)` | Poll multiple sockets |
+| `mb_device(s1, s2)` | Forward messages between sockets |
 
 ### Socket Types
 
@@ -99,6 +138,18 @@ int main (void)
 | `mb_cluster_leave(s)` | Leave the cluster |
 | `mb_cluster_route(s, key, len)` | Route key to a node |
 
+### Version & Utilities
+
+| Function | Description |
+|----------|-------------|
+| `mb_errno()` | Get last error |
+| `mb_strerror(errnum)` | Error string |
+| `mb_version_major()` | Major version |
+| `mb_version_minor()` | Minor version |
+| `mb_version_patch()` | Patch version |
+| `mb_version_string()` | Version string ("0.1.0") |
+| `mb_term()` | Shutdown library |
+
 ## Architecture
 
 ```
@@ -125,7 +176,7 @@ int main (void)
 
 ## Test Suite
 
-37 tests covering all layers:
+40 tests covering all layers:
 
 - PAL: atomic, mutex, condvar, thread, efd, clock, semaphore
 - Data structures: list, queue, hash, trie, wire, chunk, msg, slab, arena, pool
@@ -134,6 +185,7 @@ int main (void)
 - Transport: inproc, IPC, TCP
 - Protocol: pipeline (PUSH/PULL), reqrep (REQ/REP), protocols (PUB/SUB, BUS, survey)
 - Distributed: ring, gossip, protocol serialization
+- API: strerror, sendmsg/recvmsg, cmsg, coro_io, timeout/version
 
 ## Benchmarks
 
