@@ -1,8 +1,13 @@
 #ifndef MB_COROUTINE_H_INCLUDED
 #define MB_COROUTINE_H_INCLUDED
 
-#include <ucontext.h>
 #include <stddef.h>
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <ucontext.h>
+#endif
 
 #define MB_CORO_STACK_SIZE (64 * 1024)
 
@@ -19,8 +24,13 @@ struct mb_coro {
     enum mb_coro_state state;
     void *stack;
     size_t stack_size;
+#if defined(_WIN32)
+    void *fiber;
+    void *caller_fiber;
+#else
     ucontext_t uctx;
     ucontext_t caller_uctx;
+#endif
 };
 
 struct mb_coro *mb_coro_create (void (*fn) (void *arg), void *arg);
