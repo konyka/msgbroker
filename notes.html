@@ -480,5 +480,13 @@ li { margin: 5px 0; }
 <li>[x] 40/40 tests passing in both Debug and Release.</li>
 </ul>
 
+<h2>Phase 25: Code Quality Cleanup</h2>
+<p>Removed unused includes and dead stub files:</p>
+<ul>
+<li>[x] <b>Unused includes removed</b> — Cleaned 5 core files: pipe.c, poll.c, device.c, ep.c, sock.c. Removed transitive-only includes (alloc.h, err.h, fast.h, efd.h, global.h, sock.h, errno.h) that clangd flagged as unused. Build still passes with -Wall -Wextra -Werror.</li>
+<li>[x] <b>Dead stub files removed</b> — Deleted 5 placeholder files that were never compiled: tcp_atcp.c (async TCP acceptor), ipc_aipc.c (async IPC acceptor), ws.c, ws_handshake.c (WebSocket), tls.c (TLS). These transport extensions require external dependencies (OpenSSL, libwebsockets) and can be re-added when needed.</li>
+<li>[x] 40/40 tests passing in both Debug and Release.</li>
+</ul>
+
 </body>
 </html>

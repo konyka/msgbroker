@@ -1,9 +1,6 @@
 #include "../transport.h"
 #include "sock.h"
 #include "ep.h"
-#include "../utils/alloc.h"
-#include "../utils/err.h"
-#include "../utils/fast.h"
 
 #include <assert.h>
 #include <string.h>

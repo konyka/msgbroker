@@ -1,8 +1,5 @@
 #include "../protocol.h"
 #include "../transport.h"
-#include "../utils/alloc.h"
-#include "../utils/err.h"
-#include "../utils/fast.h"
 #include "../memory/msg.h"
 #include "../aio/pool.h"
 

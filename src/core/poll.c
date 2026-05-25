@@ -1,11 +1,5 @@
-#include "../utils/err.h"
-#include "../utils/fast.h"
-#include "../pal/efd.h"
 #include "../pal/sleep.h"
 #include "../utils/alloc.h"
-
-#include "global.h"
-#include "sock.h"
 
 #include <msgbroker/mb.h>
 
