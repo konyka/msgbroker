@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> Phases 0-17 complete. <b>37/37 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> Phases 0-19 complete. <b>37/37 tests passing (Debug + Release).</b> 20 socket types, 3 transports, io_uring, distributed cluster, 4 benchmarks, scatter/gather I/O, cross-platform CI (Linux/macOS/Windows). Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -331,7 +331,7 @@ li { margin: 5px 0; }
 </ul>
 
 <h2>Build Verification</h2>
-<p id="build-status">37/37 tests passing in both Debug and Release modes. All 17 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, ucontext coroutines, 5 example programs, 4 performance benchmarks, scatter/gather I/O (sendmsg/recvmsg). Clean build with -Wall -Wextra for both Debug and Release.</p>
+<p id="build-status">37/37 tests passing in both Debug and Release modes. All 19 phases complete. 20 socket types (10 user + 10 raw/x-variant). Full msgbroker library: 3 transports, io_uring backend, SWIM gossip + consistent hashing distributed layer, memory pool, thread pool, coroutines (ucontext+Fibers), 5 example programs, 4 performance benchmarks, scatter/gather I/O, cross-platform CI. Clean build with -Wall -Wextra for both Debug and Release.</p>
 
 <h2>Phase 13: Release Build Cleanup &amp; Coroutine Rewrite</h2>
 <p>Final pass to achieve clean Release build (all warnings resolved):</p>
@@ -405,6 +405,15 @@ li { margin: 5px 0; }
 <li>[x] <b>mb_sendmsg allocation crash</b> — Same fix for scatter/gather path.</li>
 <li>[x] Added <code>#include "chunkref.h"</code> to global.c for <code>MB_CHUNKREF_MAX</code> constant.</li>
 <li>[x] 37/37 tests passing in both Debug and Release.</li>
+</ul>
+
+<h2>Phase 19: Cross-Platform CI &amp; Windows Portability</h2>
+<p>Added GitHub Actions CI and fixed Windows compatibility:</p>
+<ul>
+<li>[x] <b>GitHub Actions CI</b> — 8-configuration matrix: Linux (gcc+clang, Debug+Release, with liburing), macOS (clang, Debug+Release), Windows (MSVC, Debug+Release). Runs on push/PR to main.</li>
+<li>[x] <b>Coroutine Windows port</b> — Rewrote coroutine.h/c with platform split: Win32 Fibers (<code>CreateFiber</code>/<code>SwitchToFiber</code>/<code>DeleteFiber</code>) on Windows, <code>ucontext</code> on Unix. Struct uses <code>void *fiber/caller_fiber</code> on Windows, <code>ucontext_t</code> on Unix.</li>
+<li>[x] <b>CMakeLists MSVC</b> — Already had <code>/W4 /WX</code> for MSVC, <code>-Wall -Wextra -Werror</code> for GCC/Clang. No changes needed.</li>
+<li>[x] 37/37 tests passing locally (Linux).</li>
 </ul>
 
 </body>
