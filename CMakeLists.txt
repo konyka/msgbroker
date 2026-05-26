@@ -108,9 +108,6 @@ set(MB_SOURCES
     src/transport/inproc/inproc.c
     src/transport/inproc/inproc_binproc.c
     src/transport/inproc/inproc_cinproc.c
-    src/transport/ws/ws.c
-    src/transport/ws/ws_handshake.c
-    src/transport/tls/tls.c
     src/distributed/discovery.c
     src/distributed/gossip.c
     src/distributed/ring.c
@@ -130,8 +127,6 @@ set(MB_HEADERS_PUBLIC
     include/msgbroker/mb_tcp.h
     include/msgbroker/mb_ipc.h
     include/msgbroker/mb_inproc.h
-    include/msgbroker/mb_ws.h
-    include/msgbroker/mb_tls.h
     include/msgbroker/mb_cluster.h
 )
 
