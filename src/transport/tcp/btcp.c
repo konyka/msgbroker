@@ -4,6 +4,7 @@
 #include "../../core/sock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
+#include "../../utils/net.h"
 #include "../../utils/list.h"
 
 #include <msgbroker/mb.h>
@@ -15,7 +16,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
 
@@ -28,36 +28,6 @@ static const struct mb_ep_ops mb_btcp_ops = {
     mb_btcp_stop,
     mb_btcp_destroy,
 };
-
-static int mb_tcp_parse_addr (const char *addr, char *host, size_t hostlen,
-    uint16_t *port)
-{
-    const char *sep;
-    const char *portstr;
-    unsigned long p;
-
-    sep = strstr (addr, "://");
-    if (!sep)
-        return -EINVAL;
-    sep += 3;
-
-    portstr = strrchr (sep, ':');
-    if (!portstr)
-        return -EINVAL;
-
-    if ((size_t) (portstr - sep) >= hostlen)
-        return -EINVAL;
-
-    memcpy (host, sep, (size_t) (portstr - sep));
-    host[portstr - sep] = '\0';
-    portstr++;
-
-    p = strtoul (portstr, NULL, 10);
-    if (p == 0 || p > 65535)
-        return -EINVAL;
-    *port = (uint16_t) p;
-    return 0;
-}
 
 static void mb_btcp_accept_loop (void *arg)
 {
@@ -75,7 +45,7 @@ static void mb_btcp_accept_loop (void *arg)
             continue;
 
         if (pfd.revents & POLLIN) {
-            struct sockaddr_in client;
+            struct sockaddr_storage client;
             socklen_t client_len = sizeof (client);
             int client_fd;
             struct mb_sipc *sipc;
@@ -111,47 +81,18 @@ static void mb_btcp_accept_loop (void *arg)
 int mb_btcp_create (struct mb_ep *ep)
 {
     struct mb_btcp *self;
-    struct sockaddr_in sa;
     int fd;
     int rc;
     char host[256];
     uint16_t port;
-    int flag = 1;
 
-    rc = mb_tcp_parse_addr (mb_ep_getaddr (ep), host, sizeof (host), &port);
+    rc = mb_net_parse_addr (mb_ep_getaddr (ep), host, sizeof (host), &port);
     if (rc < 0)
         return rc;
 
-    fd = socket (AF_INET, SOCK_STREAM, 0);
+    fd = mb_net_bind (host, port, MB_BTCP_BACKLOG);
     if (fd < 0)
-        return -errno;
-
-    setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof (flag));
-
-    memset (&sa, 0, sizeof (sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons (port);
-
-    if (strcmp (host, "*") == 0 || strcmp (host, "0.0.0.0") == 0) {
-        sa.sin_addr.s_addr = htonl (INADDR_ANY);
-    } else {
-        if (inet_pton (AF_INET, host, &sa.sin_addr) <= 0) {
-            close (fd);
-            return -EINVAL;
-        }
-    }
-
-    rc = bind (fd, (struct sockaddr *) &sa, sizeof (sa));
-    if (rc < 0) {
-        close (fd);
-        return -errno;
-    }
-
-    rc = listen (fd, MB_BTCP_BACKLOG);
-    if (rc < 0) {
-        close (fd);
-        return -errno;
-    }
+        return fd;
 
     self = (struct mb_btcp *) mb_alloc (sizeof (struct mb_btcp));
     if (!self) {

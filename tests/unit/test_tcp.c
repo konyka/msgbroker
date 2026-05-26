@@ -102,9 +102,12 @@ static void test_tcp_connect_refused (void)
 {
     int s;
     int rc;
+    int ivl = 0;
 
     s = mb_socket (AF_MB, MB_PAIR);
     assert (s >= 0);
+
+    mb_setsockopt (s, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
 
     rc = mb_connect (s, "tcp://127.0.0.1:19999");
     assert (rc < 0);

@@ -54,6 +54,9 @@ extern const struct mb_socktype mb_xrespondent_socktype;
 extern const struct mb_transport mb_inproc_transport;
 extern const struct mb_transport mb_ipc_transport;
 extern const struct mb_transport mb_tcp_transport;
+extern const struct mb_transport mb_tls_transport;
+extern const struct mb_transport mb_ws_transport;
+extern const struct mb_transport mb_wss_transport;
 
 static const struct mb_socktype *mb_socktypes[] = {
     &mb_pair_socktype,
@@ -83,6 +86,9 @@ static const struct mb_transport *mb_transports[] = {
     &mb_inproc_transport,
     &mb_ipc_transport,
     &mb_tcp_transport,
+    &mb_tls_transport,
+    &mb_ws_transport,
+    &mb_wss_transport,
     NULL,
 };
 

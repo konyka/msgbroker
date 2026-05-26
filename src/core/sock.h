@@ -69,6 +69,11 @@ struct mb_sock {
     } statistics;
 
     char socket_name[64];
+
+    char tls_cert_path[256];
+    char tls_key_path[256];
+    char tls_ca_path[256];
+    int tls_verify;
 };
 
 int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,

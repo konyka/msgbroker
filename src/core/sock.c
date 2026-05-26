@@ -8,6 +8,8 @@
 #include "ep.h"
 #include "pipe.h"
 
+#include <msgbroker/mb_tls.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -60,6 +62,11 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
 
     memset (&self->statistics, 0, sizeof (self->statistics));
     snprintf (self->socket_name, sizeof (self->socket_name), "%d", fd);
+
+    memset (self->tls_cert_path, 0, sizeof (self->tls_cert_path));
+    memset (self->tls_key_path, 0, sizeof (self->tls_key_path));
+    memset (self->tls_ca_path, 0, sizeof (self->tls_ca_path));
+    self->tls_verify = 0;
 
     rc = socktype->create ((void *) (intptr_t) fd, &self->sockbase);
     if (rc < 0) {
@@ -144,6 +151,30 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         }
     }
 
+    if (level == MB_TLS) {
+        switch (option) {
+        case MB_TLS_CONFIG_CERT:
+            if (optvallen >= sizeof (self->tls_cert_path)) return -EINVAL;
+            memcpy (self->tls_cert_path, optval, optvallen);
+            self->tls_cert_path[optvallen] = '\0';
+            return 0;
+        case MB_TLS_CONFIG_KEY:
+            if (optvallen >= sizeof (self->tls_key_path)) return -EINVAL;
+            memcpy (self->tls_key_path, optval, optvallen);
+            self->tls_key_path[optvallen] = '\0';
+            return 0;
+        case MB_TLS_CONFIG_CA:
+            if (optvallen >= sizeof (self->tls_ca_path)) return -EINVAL;
+            memcpy (self->tls_ca_path, optval, optvallen);
+            self->tls_ca_path[optvallen] = '\0';
+            return 0;
+        case MB_TLS_CONFIG_VERIFY:
+            if (optvallen != sizeof (int)) return -EINVAL;
+            self->tls_verify = *(const int *)optval;
+            return 0;
+        }
+    }
+
     if (self->sockbase && self->sockbase->vfptr->setopt) {
         rc = self->sockbase->vfptr->setopt (self->sockbase, level, option,
             optval, optvallen);
@@ -214,7 +245,6 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
     if (rc >= 0) {
         self->statistics.messages_sent++;
         self->statistics.bytes_sent += mb_chunkref_size (&msg->body);
-        mb_efd_signal (&self->sndfd);
     }
     mb_ctx_leave (&self->ctx);
     return rc;
@@ -232,7 +262,6 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
     if (rc >= 0) {
         self->statistics.messages_received++;
         self->statistics.bytes_received += mb_chunkref_size (&msg->body);
-        mb_efd_signal (&self->rcvfd);
     }
     mb_ctx_leave (&self->ctx);
     return rc;

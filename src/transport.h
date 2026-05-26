@@ -85,7 +85,7 @@ int mb_pipebase_ispeer (struct mb_pipebase *self, int socktype);
 /*  Transport class — registered globally, provides bind/connect.             */
 /******************************************************************************/
 
-#define MB_MAX_TRANSPORT 5
+#define MB_MAX_TRANSPORT 6
 
 struct mb_transport {
     const char *name;
