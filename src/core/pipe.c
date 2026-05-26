@@ -78,6 +78,7 @@ int mb_pipebase_start (struct mb_pipebase *self)
 void mb_pipebase_stop (struct mb_pipebase *self)
 {
     assert (self->state == MB_PIPEBASE_STATE_ACTIVE);
+    self->sock->statistics.broken_connections++;
     mb_sock_pipe_rm (self->sock, (struct mb_pipe *) self);
     self->state = MB_PIPEBASE_STATE_IDLE;
     self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
