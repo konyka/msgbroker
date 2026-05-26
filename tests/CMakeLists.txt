@@ -41,6 +41,12 @@ set(MB_TEST_SOURCES
     unit/test_cmsg.c
     unit/test_coro_io.c
     unit/test_timeout.c
+    unit/test_tls.c
+    unit/test_tls_cert.c
+    unit/test_ws.c
+    unit/test_wss.c
+    unit/test_ipv6_dns.c
+    unit/test_reconnect.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})
@@ -54,7 +60,34 @@ foreach(TEST_SRC ${MB_TEST_SOURCES})
     if(UNIX AND NOT APPLE)
         target_link_libraries(${TEST_NAME} PRIVATE uring)
     endif()
+    if(OpenSSL_FOUND)
+        target_link_libraries(${TEST_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    endif()
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
 
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure)
+
+option(MB_BUILD_FUZZ "Build fuzz testers" OFF)
+if(MB_BUILD_FUZZ)
+    set(MB_FUZZ_SOURCES
+        fuzz/fuzz_sipc.c
+        fuzz/fuzz_ws_frame.c
+        fuzz/fuzz_msgqueue.c
+    )
+    foreach(FUZZ_SRC ${MB_FUZZ_SOURCES})
+        get_filename_component(FUZZ_NAME ${FUZZ_SRC} NAME_WE)
+        add_executable(${FUZZ_NAME} ${FUZZ_SRC})
+        target_link_libraries(${FUZZ_NAME} PRIVATE msgbroker_static msgbroker_headers)
+        target_compile_options(${FUZZ_NAME} PRIVATE -Wall -Wextra -Wno-error)
+        if(UNIX)
+            target_link_libraries(${FUZZ_NAME} PRIVATE pthread)
+        endif()
+        if(UNIX AND NOT APPLE)
+            target_link_libraries(${FUZZ_NAME} PRIVATE uring)
+        endif()
+        if(OpenSSL_FOUND)
+            target_link_libraries(${FUZZ_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        endif()
+    endforeach()
+endif()
