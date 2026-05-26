@@ -14,6 +14,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <fcntl.h>
+#include <poll.h>
 
 static void mb_cipc_stop (void *p);
 static void mb_cipc_destroy (void *p);
@@ -38,15 +39,72 @@ static const char *mb_cipc_parse_addr (const char *addr, char *path,
     return path;
 }
 
-int mb_cipc_create (struct mb_ep *ep)
+static void mb_cipc_reconnect_loop (void *arg)
 {
-    struct mb_cipc *self;
+    struct mb_cipc *self = (struct mb_cipc *) arg;
+    int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
+    int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
+    int current_ivl = ivl;
+
+    while (self->running) {
+        struct sockaddr_un sa;
+        int fd;
+        struct mb_sipc *sipc;
+
+        fd = socket (AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0) {
+            struct pollfd pfd = { .fd = -1, .events = 0 };
+            poll (&pfd, 0, current_ivl);
+            if (ivl_max > 0 && current_ivl < ivl_max)
+                current_ivl *= 2;
+            if (current_ivl > ivl_max && ivl_max > 0)
+                current_ivl = ivl_max;
+            continue;
+        }
+
+        memset (&sa, 0, sizeof (sa));
+        sa.sun_family = AF_UNIX;
+        snprintf (sa.sun_path, sizeof (sa.sun_path), "%s", self->path);
+
+        if (connect (fd, (struct sockaddr *) &sa, sizeof (sa)) < 0) {
+            close (fd);
+            struct pollfd pfd = { .fd = -1, .events = 0 };
+            poll (&pfd, 0, current_ivl);
+            if (ivl_max > 0 && current_ivl < ivl_max)
+                current_ivl *= 2;
+            if (current_ivl > ivl_max && ivl_max > 0)
+                current_ivl = ivl_max;
+            continue;
+        }
+
+        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+
+        sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
+        if (!sipc) {
+            close (fd);
+            continue;
+        }
+
+        mb_sipc_create (sipc, self->ep, fd);
+
+        mb_mutex_lock (&self->lock);
+        if (!self->running) {
+            mb_sipc_term (sipc);
+            mb_free (sipc);
+            mb_mutex_unlock (&self->lock);
+            return;
+        }
+        self->sipc = sipc;
+        mb_sipc_start (sipc);
+        mb_mutex_unlock (&self->lock);
+        return;
+    }
+}
+
+static int mb_cipc_do_connect (struct mb_cipc *self)
+{
     struct sockaddr_un sa;
     int fd;
-    int rc;
-    char path[108];
-
-    mb_cipc_parse_addr (mb_ep_getaddr (ep), path, sizeof (path));
 
     fd = socket (AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
@@ -54,49 +112,75 @@ int mb_cipc_create (struct mb_ep *ep)
 
     memset (&sa, 0, sizeof (sa));
     sa.sun_family = AF_UNIX;
-    snprintf (sa.sun_path, sizeof (sa.sun_path), "%s", path);
+    snprintf (sa.sun_path, sizeof (sa.sun_path), "%s", self->path);
 
-    rc = connect (fd, (struct sockaddr *) &sa, sizeof (sa));
-    if (rc < 0) {
+    if (connect (fd, (struct sockaddr *) &sa, sizeof (sa)) < 0) {
         close (fd);
         return -errno;
     }
 
     fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
-    self = (struct mb_cipc *) mb_alloc (sizeof (struct mb_cipc));
-    if (!self) {
-        close (fd);
-        return -ENOMEM;
-    }
-
-    self->ep = ep;
     self->sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
     if (!self->sipc) {
         close (fd);
-        mb_free (self);
         return -ENOMEM;
     }
 
-    mb_sipc_create (self->sipc, ep, fd);
+    mb_sipc_create (self->sipc, self->ep, fd);
     mb_sipc_start (self->sipc);
+    return 0;
+}
+
+int mb_cipc_create (struct mb_ep *ep)
+{
+    struct mb_cipc *self;
+    int rc;
+
+    self = (struct mb_cipc *) mb_alloc (sizeof (struct mb_cipc));
+    if (!self)
+        return -ENOMEM;
+
+    self->ep = ep;
+    self->sipc = NULL;
+    self->running = 1;
+    mb_mutex_init (&self->lock);
+    mb_thread_init (&self->reconnect_thread);
+
+    mb_cipc_parse_addr (mb_ep_getaddr (ep), self->path, sizeof (self->path));
 
     mb_ep_tran_setup (ep, &mb_cipc_ops, self);
 
-    return 0;
+    rc = mb_cipc_do_connect (self);
+    if (rc >= 0)
+        return 0;
+
+    if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        mb_thread_start (&self->reconnect_thread,
+            mb_cipc_reconnect_loop, self);
+        return 0;
+    }
+
+    mb_mutex_term (&self->lock);
+    mb_free (self);
+    return rc;
 }
 
 static void mb_cipc_stop (void *p)
 {
     struct mb_cipc *self = (struct mb_cipc *) p;
 
+    mb_mutex_lock (&self->lock);
+    self->running = 0;
     if (self->sipc) {
         mb_sipc_stop (self->sipc);
         mb_sipc_term (self->sipc);
         mb_free (self->sipc);
         self->sipc = NULL;
     }
+    mb_mutex_unlock (&self->lock);
 
+    mb_thread_term (&self->reconnect_thread);
     mb_ep_stopped (self->ep);
 }
 
@@ -108,8 +192,8 @@ static void mb_cipc_destroy (void *p)
         mb_sipc_stop (self->sipc);
         mb_sipc_term (self->sipc);
         mb_free (self->sipc);
-        self->sipc = NULL;
     }
 
+    mb_mutex_term (&self->lock);
     mb_free (self);
 }

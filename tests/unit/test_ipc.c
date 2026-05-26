@@ -102,9 +102,12 @@ static void test_ipc_connect_refused (void)
 {
     int s;
     int rc;
+    int ivl = 0;
 
     s = mb_socket (AF_MB, MB_PAIR);
     assert (s >= 0);
+
+    mb_setsockopt (s, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
 
     rc = mb_connect (s, "ipc:///tmp/mb_test_ipc_nonexist");
     assert (rc < 0);
