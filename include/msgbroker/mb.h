@@ -51,8 +51,10 @@ extern "C" {
 /******************************************************************************/
 
 #define MB_VERSION_MAJOR 0
-#define MB_VERSION_MINOR 1
+#define MB_VERSION_MINOR 2
 #define MB_VERSION_PATCH 0
+
+#define MB_VERSION_STRING "0.2.0"
 
 /******************************************************************************/
 /*  Limits.                                                                   */
