@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+/** WebSocket Secure transport identifier. */
 #define MB_WSS -6
 
 #ifdef __cplusplus

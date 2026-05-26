@@ -171,7 +171,9 @@ extern "C" {
 #define EFSM (MB_HAUSNUMERO + 54)
 #endif
 
+/** @brief Get the thread-safe errno value for MB operations. */
 MB_EXPORT int mb_errno (void);
+/** @brief Get a human-readable string for an MB error number. */
 MB_EXPORT const char *mb_strerror (int errnum);
 
 /******************************************************************************/
@@ -216,8 +218,11 @@ MB_EXPORT const char *mb_strerror (int errnum);
 
 #define MB_MSG ((size_t) -1)
 
+/** @brief Allocate a new zero-copy message buffer. */
 MB_EXPORT void *mb_allocmsg (size_t size);
+/** @brief Reallocate an existing message buffer. */
 MB_EXPORT void *mb_reallocmsg (void *msg, size_t size);
+/** @brief Free a previously allocated message buffer. */
 MB_EXPORT int mb_freemsg (void *msg);
 
 /******************************************************************************/
@@ -243,6 +248,7 @@ struct mb_cmsghdr {
 };
 
 /*  Internal. */
+/** @brief Get next control message header for a msghdr. */
 MB_EXPORT struct mb_cmsghdr *mb_cmsg_nxthdr_ (
     const struct mb_msghdr *mhdr,
     const struct mb_cmsghdr *cmsg);
@@ -273,23 +279,34 @@ MB_EXPORT struct mb_cmsghdr *mb_cmsg_nxthdr_ (
 /*  Socket lifecycle.                                                         */
 /******************************************************************************/
 
+/** @brief Create a new socket for the given domain and protocol. */
 MB_EXPORT int mb_socket (int domain, int protocol);
+/** @brief Close a previously opened socket descriptor. */
 MB_EXPORT int mb_close (int s);
+/** @brief Set socket options at a given level. */
 MB_EXPORT int mb_setsockopt (int s, int level, int option,
     const void *optval, size_t optvallen);
+/** @brief Get socket options for a socket. */
 MB_EXPORT int mb_getsockopt (int s, int level, int option,
     void *optval, size_t *optvallen);
+/** @brief Bind a socket to a local address. */
 MB_EXPORT int mb_bind (int s, const char *addr);
+/** @brief Connect a socket to a remote address. */
 MB_EXPORT int mb_connect (int s, const char *addr);
+/** @brief Shutdown a socket's send/receive directions. */
 MB_EXPORT int mb_shutdown (int s, int how);
 
 /******************************************************************************/
 /*  Messaging.                                                                */
 /******************************************************************************/
 
+/** @brief Send data on a socket. */
 MB_EXPORT int mb_send (int s, const void *buf, size_t len, int flags);
+/** @brief Receive data from a socket. */
 MB_EXPORT int mb_recv (int s, void *buf, size_t len, int flags);
+/** @brief Send a message using a iovec/msghdr structure. */
 MB_EXPORT int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags);
+/** @brief Receive a message into a iovec/msghdr structure. */
 MB_EXPORT int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags);
 
 /******************************************************************************/

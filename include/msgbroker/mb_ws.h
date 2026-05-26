@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+/** WebSocket transport identifier. */
 #define MB_WS -4
 
 #define MB_WS_MSG_TYPE 1

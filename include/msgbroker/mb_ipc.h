@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+/** IPC transport identifier. */
 #define MB_IPC -2
 
 #ifdef __cplusplus

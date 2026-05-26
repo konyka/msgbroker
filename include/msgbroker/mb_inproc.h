@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+/** In-process transport identifier. */
 #define MB_INPROC -1
 
 #ifdef __cplusplus

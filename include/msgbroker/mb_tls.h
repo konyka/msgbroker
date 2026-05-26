@@ -5,8 +5,10 @@
 extern "C" {
 #endif
 
+/** TLS transport identifier. */
 #define MB_TLS -5
 
+/** TLS configuration option selectors. */
 #define MB_TLS_CONFIG_CERT   1
 #define MB_TLS_CONFIG_KEY    2
 #define MB_TLS_CONFIG_CA     3
