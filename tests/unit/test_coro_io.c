@@ -7,50 +7,23 @@
 #include <msgbroker/mb_pair.h>
 #include "../../src/aio/coroutine.h"
 
-struct coro_ctx {
-    int sock;
-    const char *send_data;
-    char recv_buf[64];
-    int recv_len;
-    int phase;
-};
-
-static void coro_fn (void *arg)
+static void coro_simple_fn (void *arg)
 {
-    struct coro_ctx *ctx = (struct coro_ctx *) arg;
-    int rc;
-
-    ctx->phase = 1;
-    rc = mb_coro_send (ctx->sock, ctx->send_data,
-        strlen (ctx->send_data));
-    assert (rc == (int) strlen (ctx->send_data));
-
-    ctx->phase = 2;
-    memset (ctx->recv_buf, 0, sizeof (ctx->recv_buf));
-    rc = mb_coro_recv (ctx->sock, ctx->recv_buf,
-        sizeof (ctx->recv_buf));
-    assert (rc > 0);
-    ctx->recv_len = rc;
-
-    ctx->phase = 3;
+    int *flag = (int *) arg;
+    *flag = 42;
 }
 
 static void test_coro_basic (void)
 {
     struct mb_coro *coro;
-    struct coro_ctx ctx;
-    int rc;
+    int flag = 0;
 
-    ctx.sock = -1;
-    ctx.send_data = "PING";
-    ctx.recv_len = 0;
-    ctx.phase = 0;
-
-    coro = mb_coro_create (coro_fn, &ctx);
+    coro = mb_coro_create (coro_simple_fn, &flag);
     assert (coro != NULL);
 
-    rc = mb_coro_resume (coro);
+    int rc = mb_coro_resume (coro);
     assert (rc == 1);
+    assert (flag == 42);
     assert (mb_coro_done (coro));
 
     mb_coro_destroy (coro);
@@ -58,11 +31,34 @@ static void test_coro_basic (void)
     printf ("  coro_basic: OK\n");
 }
 
+struct coro_io_ctx {
+    int sock;
+    const char *send_data;
+    char recv_buf[64];
+    int send_rc;
+    int recv_rc;
+    int done;
+};
+
+static void coro_io_fn (void *arg)
+{
+    struct coro_io_ctx *ctx = (struct coro_io_ctx *) arg;
+
+    ctx->send_rc = mb_coro_send (ctx->sock, ctx->send_data,
+        strlen (ctx->send_data));
+
+    memset (ctx->recv_buf, 0, sizeof (ctx->recv_buf));
+    ctx->recv_rc = mb_coro_recv (ctx->sock, ctx->recv_buf,
+        sizeof (ctx->recv_buf));
+
+    ctx->done = 1;
+}
+
 static void test_coro_sendrecv (void)
 {
     int s1, s2, rc;
     struct mb_coro *coro;
-    struct coro_ctx ctx;
+    struct coro_io_ctx ctx;
     char buf[64];
 
     s1 = mb_socket (AF_MB, MB_PAIR);
@@ -70,23 +66,20 @@ static void test_coro_sendrecv (void)
     s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    rc = mb_bind (s1, "inproc://coro");
+    rc = mb_bind (s1, "inproc://coro-io");
     assert (rc >= 0);
-    rc = mb_connect (s2, "inproc://coro");
+    rc = mb_connect (s2, "inproc://coro-io");
     assert (rc >= 0);
 
+    memset (&ctx, 0, sizeof (ctx));
     ctx.sock = s2;
     ctx.send_data = "HELLO";
-    ctx.recv_len = 0;
-    ctx.phase = 0;
 
-    coro = mb_coro_create (coro_fn, &ctx);
+    coro = mb_coro_create (coro_io_fn, &ctx);
     assert (coro != NULL);
 
     rc = mb_coro_resume (coro);
-    assert (rc == 1);
-    assert (ctx.phase == 3);
-    assert (mb_coro_done (coro));
+    assert (ctx.send_rc == 5);
 
     rc = mb_recv (s1, buf, sizeof (buf), 0);
     assert (rc == 5);
@@ -94,6 +87,13 @@ static void test_coro_sendrecv (void)
 
     rc = mb_send (s1, "WORLD", 5, 0);
     assert (rc == 5);
+
+    rc = mb_coro_resume (coro);
+    assert (rc == 1);
+    assert (ctx.recv_rc == 5);
+    assert (memcmp (ctx.recv_buf, "WORLD", 5) == 0);
+    assert (ctx.done == 1);
+    assert (mb_coro_done (coro));
 
     mb_coro_destroy (coro);
     mb_close (s2);

@@ -1,6 +1,7 @@
 #include "sinproc.h"
 #include "../../core/ep.h"
 #include "../../core/sock.h"
+#include "../../pal/efd.h"
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
@@ -58,7 +59,11 @@ static int mb_sinproc_send (struct mb_pipebase *base, struct mb_msg *msg)
     if (!self->peer)
         return -EAGAIN;
 
-    return mb_msgqueue_push (&self->peer->msgqueue, msg);
+    int was_empty = mb_msgqueue_empty (&self->peer->msgqueue);
+    int rc = mb_msgqueue_push (&self->peer->msgqueue, msg);
+    if (rc >= 0 && was_empty)
+        mb_efd_signal (&self->peer->pipebase.sock->rcvfd);
+    return rc;
 }
 
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)

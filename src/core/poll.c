@@ -27,8 +27,16 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
 #if !defined(_WIN32)
     {
         struct pollfd *pfd;
+        int *is_snd;
+
         pfd = (struct pollfd *) mb_alloc (sizeof (struct pollfd) * (size_t) nfds);
         if (!pfd) {
+            mb_errno_value = ENOMEM;
+            return -1;
+        }
+        is_snd = (int *) mb_alloc (sizeof (int) * (size_t) nfds);
+        if (!is_snd) {
+            mb_free (pfd);
             mb_errno_value = ENOMEM;
             return -1;
         }
@@ -39,6 +47,7 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
             pfd[i].fd = -1;
             pfd[i].events = 0;
             pfd[i].revents = 0;
+            is_snd[i] = 0;
 
             if (fds[i].events & MB_POLLIN) {
                 int fd;
@@ -46,6 +55,7 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
                 rc = mb_getsockopt (fds[i].fd, MB_SOL_SOCKET, MB_RCVFD,
                     &fd, &sz);
                 if (rc < 0) {
+                    mb_free (is_snd);
                     mb_free (pfd);
                     return -1;
                 }
@@ -59,11 +69,13 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
                 rc = mb_getsockopt (fds[i].fd, MB_SOL_SOCKET, MB_SNDFD,
                     &fd, &sz);
                 if (rc < 0) {
+                    mb_free (is_snd);
                     mb_free (pfd);
                     return -1;
                 }
                 pfd[i].fd = fd;
-                pfd[i].events |= POLLOUT;
+                pfd[i].events |= POLLIN;
+                is_snd[i] = 1;
                 nfds_set++;
             }
         }
@@ -77,20 +89,24 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
         }
 
         if (rc < 0) {
+            mb_free (is_snd);
             mb_free (pfd);
             return -1;
         }
 
         res = 0;
         for (i = 0; i != nfds; ++i) {
-            if (pfd[i].revents & POLLIN)
-                fds[i].revents |= MB_POLLIN;
-            if (pfd[i].revents & POLLOUT)
-                fds[i].revents |= MB_POLLOUT;
+            if (pfd[i].revents & POLLIN) {
+                if (is_snd[i])
+                    fds[i].revents |= MB_POLLOUT;
+                else
+                    fds[i].revents |= MB_POLLIN;
+            }
             if (fds[i].revents)
                 ++res;
         }
 
+        mb_free (is_snd);
         mb_free (pfd);
         return res;
     }

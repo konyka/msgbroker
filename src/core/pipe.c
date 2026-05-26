@@ -1,6 +1,7 @@
 #include "../transport.h"
 #include "sock.h"
 #include "ep.h"
+#include "../pal/efd.h"
 
 #include <assert.h>
 #include <string.h>
@@ -68,6 +69,9 @@ int mb_pipebase_start (struct mb_pipebase *self)
 
     mb_pipebase_received (self);
     mb_pipebase_sent (self);
+
+    mb_efd_signal (&self->sock->sndfd);
+
     return 0;
 }
 

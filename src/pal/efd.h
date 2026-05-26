@@ -6,7 +6,7 @@
 #endif
 
 struct mb_efd {
-    int watched;
+    int signaled;
 #if defined _WIN32
     HANDLE event;
 #elif defined MB_HAVE_EVENTFD

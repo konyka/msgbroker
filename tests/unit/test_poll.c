@@ -35,7 +35,7 @@ int main (void)
     assert (rc == 0);
 
     rc = mb_send (s2, "HELLO", 5, 0);
-    assert (rc == 0);
+    assert (rc == 5);
 
     rc = mb_poll (fds, 2, 100);
     assert (rc >= 1);
