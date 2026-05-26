@@ -55,7 +55,7 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
 
     self->ep_template.sndprio = 8;
     self->ep_template.rcvprio = 8;
-    self->ep_template.ipv4only = 1;
+    self->ep_template.ipv4only = 0;
 
     for (i = 0; i < MB_MAX_TRANSPORT; ++i)
         self->optsets[i] = NULL;
