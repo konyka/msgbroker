@@ -1,0 +1,269 @@
+#include "cws.h"
+#include "sws.h"
+#include "ws.h"
+#include "../../core/ep.h"
+#include "../../core/sock.h"
+#include "../../utils/alloc.h"
+#include "../../utils/err.h"
+#include "../../utils/net.h"
+
+#include <msgbroker/mb.h>
+
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <time.h>
+
+static void mb_cws_stop (void *p);
+static void mb_cws_destroy (void *p);
+
+static const struct mb_ep_ops mb_cws_ops = {
+    mb_cws_stop,
+    mb_cws_destroy,
+};
+
+static size_t mb_cws_b64_encode (const uint8_t *src, size_t len, char *dst)
+{
+    static const char b64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i, j = 0;
+    for (i = 0; i < len; i += 3) {
+        uint32_t v = (uint32_t) src[i] << 16;
+        if (i + 1 < len) v |= (uint32_t) src[i+1] << 8;
+        if (i + 2 < len) v |= src[i+2];
+        dst[j++] = b64[(v >> 18) & 0x3F];
+        dst[j++] = b64[(v >> 12) & 0x3F];
+        dst[j++] = (i + 1 < len) ? b64[(v >> 6) & 0x3F] : '=';
+        dst[j++] = (i + 2 < len) ? b64[v & 0x3F] : '=';
+    }
+    dst[j] = '\0';
+    return j;
+}
+
+static int mb_cws_do_handshake (int fd, const char *host, uint16_t port)
+{
+    uint8_t key_bytes[16];
+    char key_b64[32];
+    char req[512];
+    char resp[4096];
+    int i;
+    size_t pos;
+    char *accept_val;
+
+    srand ((unsigned int) time (NULL) ^ (unsigned int) fd);
+    for (i = 0; i < 16; ++i)
+        key_bytes[i] = (uint8_t) (rand () & 0xFF);
+    mb_cws_b64_encode (key_bytes, 16, key_b64);
+
+    snprintf (req, sizeof (req),
+        "GET / HTTP/1.1\r\n"
+        "Host: %s:%u\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: %s\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n", host, port, key_b64);
+
+    {
+        const char *p = req;
+        size_t remaining = strlen (req);
+        while (remaining > 0) {
+            ssize_t ns = send (fd, p, remaining, MSG_NOSIGNAL);
+            if (ns <= 0)
+                return -1;
+            p += ns;
+            remaining -= (size_t) ns;
+        }
+    }
+
+    pos = 0;
+    while (pos < sizeof (resp) - 1) {
+        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+        int rc = poll (&pfd, 1, 5000);
+        if (rc <= 0)
+            return -1;
+        {
+            ssize_t nr = recv (fd, resp + pos, 1, 0);
+            if (nr <= 0)
+                return -1;
+            pos += (size_t) nr;
+            resp[pos] = '\0';
+            if (pos >= 4 && memcmp (resp + pos - 4, "\r\n\r\n", 4) == 0)
+                break;
+        }
+    }
+
+    if (memcmp (resp, "HTTP/1.1 101", 12) != 0 &&
+        memcmp (resp, "HTTP/1.0 101", 12) != 0)
+        return -1;
+
+    accept_val = strstr (resp, "Sec-WebSocket-Accept:");
+    if (!accept_val)
+        return -1;
+
+    return 0;
+}
+
+static void mb_cws_reconnect_loop (void *arg)
+{
+    struct mb_cws *self = (struct mb_cws *) arg;
+    int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
+    int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
+    int current_ivl = ivl;
+
+    while (self->running) {
+        int fd;
+        struct mb_sws *sws;
+
+        fd = mb_net_connect (self->host, self->port, NULL);
+        if (fd < 0) {
+            struct pollfd pfd = { .fd = -1, .events = 0 };
+            poll (&pfd, 0, current_ivl);
+            if (ivl_max > 0 && current_ivl < ivl_max)
+                current_ivl *= 2;
+            if (current_ivl > ivl_max && ivl_max > 0)
+                current_ivl = ivl_max;
+            continue;
+        }
+
+        if (mb_cws_do_handshake (fd, self->host, self->port) < 0) {
+            close (fd);
+            struct pollfd pfd = { .fd = -1, .events = 0 };
+            poll (&pfd, 0, current_ivl);
+            if (ivl_max > 0 && current_ivl < ivl_max)
+                current_ivl *= 2;
+            if (current_ivl > ivl_max && ivl_max > 0)
+                current_ivl = ivl_max;
+            continue;
+        }
+
+        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+
+        sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
+        if (!sws) {
+            close (fd);
+            continue;
+        }
+
+        mb_sws_create (sws, self->ep, fd, 1);
+
+        mb_mutex_lock (&self->lock);
+        if (!self->running) {
+            mb_sws_term (sws);
+            mb_free (sws);
+            mb_mutex_unlock (&self->lock);
+            return;
+        }
+        self->sws = sws;
+        mb_sws_start (sws);
+        mb_mutex_unlock (&self->lock);
+        return;
+    }
+}
+
+static int mb_cws_do_connect (struct mb_cws *self)
+{
+    int fd;
+    int rc;
+
+    fd = mb_net_connect (self->host, self->port, NULL);
+    if (fd < 0)
+        return fd;
+
+    rc = mb_cws_do_handshake (fd, self->host, self->port);
+    if (rc < 0) {
+        close (fd);
+        return -ECONNREFUSED;
+    }
+
+    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+
+    self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
+    if (!self->sws) {
+        close (fd);
+        return -ENOMEM;
+    }
+
+    mb_sws_create (self->sws, self->ep, fd, 1);
+    mb_sws_start (self->sws);
+    return 0;
+}
+
+int mb_cws_create (struct mb_ep *ep)
+{
+    struct mb_cws *self;
+    int rc;
+
+    self = (struct mb_cws *) mb_alloc (sizeof (struct mb_cws));
+    if (!self)
+        return -ENOMEM;
+
+    self->ep = ep;
+    self->sws = NULL;
+    self->running = 1;
+    mb_mutex_init (&self->lock);
+    mb_thread_init (&self->reconnect_thread);
+
+    rc = mb_net_parse_addr (mb_ep_getaddr (ep), self->host,
+        sizeof (self->host), &self->port);
+    if (rc < 0) {
+        mb_free (self);
+        return rc;
+    }
+
+    mb_ep_tran_setup (ep, &mb_cws_ops, self);
+
+    rc = mb_cws_do_connect (self);
+    if (rc >= 0)
+        return 0;
+
+    if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        mb_thread_start (&self->reconnect_thread,
+            mb_cws_reconnect_loop, self);
+        return 0;
+    }
+
+    mb_mutex_term (&self->lock);
+    mb_free (self);
+    return rc;
+}
+
+static void mb_cws_stop (void *p)
+{
+    struct mb_cws *self = (struct mb_cws *) p;
+
+    mb_mutex_lock (&self->lock);
+    self->running = 0;
+    if (self->sws) {
+        mb_sws_stop (self->sws);
+        mb_sws_term (self->sws);
+        mb_free (self->sws);
+        self->sws = NULL;
+    }
+    mb_mutex_unlock (&self->lock);
+
+    mb_thread_term (&self->reconnect_thread);
+    mb_ep_stopped (self->ep);
+}
+
+static void mb_cws_destroy (void *p)
+{
+    struct mb_cws *self = (struct mb_cws *) p;
+
+    if (self->sws) {
+        mb_sws_stop (self->sws);
+        mb_sws_term (self->sws);
+        mb_free (self->sws);
+    }
+
+    mb_mutex_term (&self->lock);
+    mb_free (self);
+}

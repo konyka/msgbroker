@@ -1,0 +1,443 @@
+#include "sws.h"
+#include "ws.h"
+#include "../../core/ep.h"
+#include "../../core/sock.h"
+#include "../../pal/efd.h"
+#include "../../utils/alloc.h"
+#include "../../utils/cont.h"
+#include "../../utils/err.h"
+#include "../../utils/wire.h"
+#include "../../memory/msg.h"
+
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <poll.h>
+#include <openssl/ssl.h>
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+#define MB_SWS_INSTATE_HDR  1
+#define MB_SWS_INSTATE_BODY 2
+#define MB_SWS_INSTATE_HASMSG 3
+
+static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg);
+static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg);
+
+static const struct mb_pipebase_vfptr mb_sws_vfptr = {
+    mb_sws_send,
+    mb_sws_recv,
+};
+
+static void mb_ws_mask (uint8_t *data, size_t len, const uint8_t *key)
+{
+    size_t i;
+    for (i = 0; i < len; ++i)
+        data[i] ^= key[i % 4];
+}
+
+static int mb_sws_do_recv (struct mb_sws *self, void *buf, size_t len,
+    ssize_t *out)
+{
+    if (self->ssl) {
+        int nr = SSL_read (self->ssl, buf, (int) len);
+        if (nr <= 0) {
+            int err = SSL_get_error (self->ssl, nr);
+            if (err == SSL_ERROR_ZERO_RETURN) {
+                *out = 0;
+                return 0;
+            }
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                *out = -1;
+                errno = EAGAIN;
+                return 0;
+            }
+            *out = 0;
+            return 0;
+        }
+        *out = (ssize_t) nr;
+        return 0;
+    }
+    *out = recv (self->fd, buf, len, 0);
+    return 0;
+}
+
+static int mb_sws_send_raw (struct mb_sws *self, const void *buf, size_t len)
+{
+    const uint8_t *ptr = (const uint8_t *) buf;
+    size_t remaining = len;
+
+    while (remaining > 0) {
+        ssize_t ns;
+        if (self->ssl) {
+            ns = SSL_write (self->ssl, ptr, (int) remaining);
+            if (ns <= 0) {
+                int err = SSL_get_error (self->ssl, (int) ns);
+                if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+                    return -EAGAIN;
+                return -ECONNRESET;
+            }
+        } else {
+            ns = send (self->fd, ptr, remaining, MSG_NOSIGNAL);
+            if (ns < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    return -EAGAIN;
+                return -errno;
+            }
+        }
+        ptr += ns;
+        remaining -= (size_t) ns;
+    }
+    return 0;
+}
+
+static int mb_sws_send_frame (struct mb_sws *self, int opcode,
+    const void *data, size_t len)
+{
+    uint8_t hdr[MB_WS_MAX_HDR_SIZE];
+    int hdrlen = 0;
+    int rc;
+
+    hdr[0] = MB_WS_FIN_BIT | (uint8_t) opcode;
+
+    if (len < 126) {
+        hdr[1] = (uint8_t) len;
+        if (self->is_client)
+            hdr[1] |= MB_WS_MASK_BIT;
+        hdrlen = 2;
+    } else if (len <= 65535) {
+        hdr[1] = 126;
+        if (self->is_client)
+            hdr[1] |= MB_WS_MASK_BIT;
+        hdr[2] = (uint8_t) ((len >> 8) & 0xFF);
+        hdr[3] = (uint8_t) (len & 0xFF);
+        hdrlen = 4;
+    } else {
+        hdr[1] = 127;
+        if (self->is_client)
+            hdr[1] |= MB_WS_MASK_BIT;
+        hdr[2] = 0; hdr[3] = 0; hdr[4] = 0; hdr[5] = 0;
+        hdr[6] = (uint8_t) ((len >> 24) & 0xFF);
+        hdr[7] = (uint8_t) ((len >> 16) & 0xFF);
+        hdr[8] = (uint8_t) ((len >> 8) & 0xFF);
+        hdr[9] = (uint8_t) (len & 0xFF);
+        hdrlen = 10;
+    }
+
+    if (self->is_client) {
+        uint8_t mask[4];
+        mask[0] = (uint8_t) (rand () & 0xFF);
+        mask[1] = (uint8_t) (rand () & 0xFF);
+        mask[2] = (uint8_t) (rand () & 0xFF);
+        mask[3] = (uint8_t) (rand () & 0xFF);
+        hdr[hdrlen++] = mask[0];
+        hdr[hdrlen++] = mask[1];
+        hdr[hdrlen++] = mask[2];
+        hdr[hdrlen++] = mask[3];
+
+        rc = mb_sws_send_raw (self, hdr, (size_t) hdrlen);
+        if (rc < 0)
+            return rc;
+
+        if (len > 0) {
+            uint8_t *masked = (uint8_t *) mb_alloc (len);
+            if (!masked)
+                return -ENOMEM;
+            memcpy (masked, data, len);
+            mb_ws_mask (masked, len, mask);
+            rc = mb_sws_send_raw (self, masked, len);
+            mb_free (masked);
+            return rc;
+        }
+        return 0;
+    }
+
+    rc = mb_sws_send_raw (self, hdr, (size_t) hdrlen);
+    if (rc < 0)
+        return rc;
+
+    if (len > 0)
+        return mb_sws_send_raw (self, data, len);
+
+    return 0;
+}
+
+static int mb_sws_send_pong (struct mb_sws *self, const void *data,
+    size_t len)
+{
+    return mb_sws_send_frame (self, MB_WS_OPCODE_PONG, data, len);
+}
+
+int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
+    int is_client)
+{
+    self->fd = fd;
+    self->is_client = is_client;
+    self->ssl = NULL;
+    mb_pipebase_init (&self->pipebase, &mb_sws_vfptr, ep);
+    mb_list_item_init (&self->item);
+    self->inpos = 0;
+    self->inlen = 0;
+    self->instate = MB_SWS_INSTATE_HDR;
+    self->payload_len = 0;
+    self->payload_offset = 0;
+    memset (self->mask_key, 0, 4);
+    mb_msg_init (&self->inmsg, 0);
+    return 0;
+}
+
+void mb_sws_term (struct mb_sws *self)
+{
+    mb_msg_term (&self->inmsg);
+    mb_list_item_term (&self->item);
+    mb_pipebase_term (&self->pipebase);
+    if (self->ssl) {
+        SSL_shutdown (self->ssl);
+        SSL_free (self->ssl);
+        self->ssl = NULL;
+    }
+    if (self->fd >= 0) {
+        close (self->fd);
+        self->fd = -1;
+    }
+}
+
+void mb_sws_start (struct mb_sws *self)
+{
+    mb_pipebase_start (&self->pipebase);
+}
+
+void mb_sws_stop (struct mb_sws *self)
+{
+    if (self->pipebase.state == 2)
+        mb_pipebase_stop (&self->pipebase);
+    if (self->fd >= 0) {
+        close (self->fd);
+        self->fd = -1;
+    }
+}
+
+static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
+{
+    struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+    uint8_t hdr[4];
+    size_t body_len;
+    size_t frame_len;
+    uint8_t *frame;
+
+    body_len = mb_chunkref_size (&msg->body);
+    mb_wire_put_uint32 (hdr, (uint32_t) body_len);
+
+    frame_len = 4 + body_len;
+    frame = (uint8_t *) mb_alloc (frame_len);
+    if (!frame)
+        return -ENOMEM;
+
+    memcpy (frame, hdr, 4);
+    if (body_len > 0) {
+        void *body_data = mb_chunkref_data (&msg->body);
+        if (body_data)
+            memcpy (frame + 4, body_data, body_len);
+    }
+
+    {
+        int rc = mb_sws_send_frame (self, MB_WS_OPCODE_BINARY, frame,
+            frame_len);
+        mb_free (frame);
+        return rc;
+    }
+}
+
+static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
+{
+    struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+
+    for (;;) {
+        if (self->instate == MB_SWS_INSTATE_HDR) {
+            int need;
+            int have;
+
+            if (self->inpos < 2) {
+                ssize_t nr;
+                mb_sws_do_recv (self, self->inhdr + self->inpos,
+                    (size_t) (2 - self->inpos), &nr);
+                if (nr <= 0) {
+                    if (nr == 0)
+                        return -ECONNRESET;
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        return -EAGAIN;
+                    return -errno;
+                }
+                self->inpos += (int) nr;
+            }
+
+            if (self->inpos < 2)
+                return -EAGAIN;
+
+            {
+                uint8_t payload_len_byte = self->inhdr[1] & 0x7F;
+                int masked = (self->inhdr[1] & MB_WS_MASK_BIT) ? 1 : 0;
+
+                need = 2;
+                if (payload_len_byte == 126)
+                    need += 2;
+                else if (payload_len_byte == 127)
+                    need += 8;
+                if (masked)
+                    need += 4;
+            }
+
+            while (self->inpos < need) {
+                ssize_t nr;
+                mb_sws_do_recv (self, self->inhdr + self->inpos,
+                    (size_t) (need - self->inpos), &nr);
+                if (nr <= 0) {
+                    if (nr == 0)
+                        return -ECONNRESET;
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        return -EAGAIN;
+                    return -errno;
+                }
+                self->inpos += (int) nr;
+            }
+
+            {
+                uint8_t opcode = self->inhdr[0] & 0x0F;
+                uint8_t payload_len_byte = self->inhdr[1] & 0x7F;
+                int masked = (self->inhdr[1] & MB_WS_MASK_BIT) ? 1 : 0;
+                int hdr_used = 2;
+
+                if (payload_len_byte < 126) {
+                    self->payload_len = (int) payload_len_byte;
+                } else if (payload_len_byte == 126) {
+                    self->payload_len = (int) (
+                        ((uint16_t) self->inhdr[2] << 8) |
+                        self->inhdr[3]);
+                    hdr_used += 2;
+                } else {
+                    self->payload_len = (int) (
+                        ((uint64_t) self->inhdr[6] << 24) |
+                        ((uint64_t) self->inhdr[7] << 16) |
+                        ((uint64_t) self->inhdr[8] << 8) |
+                        self->inhdr[9]);
+                    hdr_used += 8;
+                }
+
+                if (masked) {
+                    self->mask_key[0] = self->inhdr[hdr_used];
+                    self->mask_key[1] = self->inhdr[hdr_used + 1];
+                    self->mask_key[2] = self->inhdr[hdr_used + 2];
+                    self->mask_key[3] = self->inhdr[hdr_used + 3];
+                }
+
+                if (opcode == MB_WS_OPCODE_CLOSE) {
+                    mb_sws_send_frame (self, MB_WS_OPCODE_CLOSE, NULL, 0);
+                    return -ECONNRESET;
+                }
+
+                if (opcode == MB_WS_OPCODE_PING) {
+                    uint8_t ping_data[125];
+                    if (self->payload_len > 0 && self->payload_len <= 125) {
+                        have = 0;
+                        while (have < self->payload_len) {
+                            ssize_t nr;
+                            mb_sws_do_recv (self,
+                                ping_data + have,
+                                (size_t) (self->payload_len - have), &nr);
+                            if (nr <= 0)
+                                return -ECONNRESET;
+                            have += (int) nr;
+                        }
+                        if (masked)
+                            mb_ws_mask (ping_data, (size_t) self->payload_len,
+                                self->mask_key);
+                        mb_sws_send_pong (self, ping_data,
+                            (size_t) self->payload_len);
+                    } else {
+                        mb_sws_send_pong (self, NULL, 0);
+                    }
+                    self->inpos = 0;
+                    continue;
+                }
+
+                if (opcode == MB_WS_OPCODE_PONG) {
+                    self->inpos = 0;
+                    self->payload_len = 0;
+                    continue;
+                }
+
+                self->instate = MB_SWS_INSTATE_BODY;
+                self->inpos = 0;
+            }
+        }
+
+        if (self->instate == MB_SWS_INSTATE_BODY) {
+            uint8_t *body;
+            int remaining;
+            int have;
+
+            body = (uint8_t *) mb_alloc ((size_t) self->payload_len);
+            if (!body)
+                return -ENOMEM;
+
+            remaining = self->payload_len;
+            have = 0;
+            while (have < remaining) {
+                ssize_t nr;
+                mb_sws_do_recv (self, body + have,
+                    (size_t) (remaining - have), &nr);
+                if (nr <= 0) {
+                    mb_free (body);
+                    if (nr == 0)
+                        return -ECONNRESET;
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        return -EAGAIN;
+                    return -errno;
+                }
+                have += (int) nr;
+            }
+
+            if ((self->inhdr[1] & MB_WS_MASK_BIT))
+                mb_ws_mask (body, (size_t) self->payload_len,
+                    self->mask_key);
+
+            if (self->payload_len < 4) {
+                mb_free (body);
+                self->instate = MB_SWS_INSTATE_HDR;
+                self->inpos = 0;
+                continue;
+            }
+
+            {
+                uint32_t msg_len = mb_wire_get_uint32 (body);
+                if (msg_len > (uint32_t) (self->payload_len - 4)) {
+                    mb_free (body);
+                    self->instate = MB_SWS_INSTATE_HDR;
+                    self->inpos = 0;
+                    continue;
+                }
+
+                mb_msg_term (&self->inmsg);
+                mb_msg_init (&self->inmsg, 0);
+                if (msg_len > 0)
+                    mb_chunkref_set (&self->inmsg.body,
+                        body + 4, (size_t) msg_len);
+                mb_free (body);
+            }
+
+            self->instate = MB_SWS_INSTATE_HASMSG;
+        }
+
+        if (self->instate == MB_SWS_INSTATE_HASMSG) {
+            mb_msg_mv (msg, &self->inmsg);
+            mb_msg_init (&self->inmsg, 0);
+            self->instate = MB_SWS_INSTATE_HDR;
+            self->inpos = 0;
+            return 0;
+        }
+    }
+}
