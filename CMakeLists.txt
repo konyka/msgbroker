@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(msgbroker VERSION 0.1.0 LANGUAGES C)
+project(msgbroker VERSION 0.2.0 LANGUAGES C)
 
 set(MB_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(MB_VERSION_MINOR ${PROJECT_VERSION_MINOR})
@@ -44,6 +44,7 @@ set(MB_SOURCES
     src/utils/err.c
     src/utils/alloc.c
     src/utils/random.c
+    src/utils/net.c
     src/utils/lb.c
     src/utils/fq.c
     src/pal/mutex.c
@@ -108,6 +109,17 @@ set(MB_SOURCES
     src/transport/inproc/inproc.c
     src/transport/inproc/inproc_binproc.c
     src/transport/inproc/inproc_cinproc.c
+    src/transport/tls/tls.c
+    src/transport/tls/stls.c
+    src/transport/tls/btls.c
+    src/transport/tls/ctls.c
+    src/transport/ws/ws.c
+    src/transport/ws/sws.c
+    src/transport/ws/bws.c
+    src/transport/ws/cws.c
+    src/transport/ws/wss.c
+    src/transport/ws/bwss.c
+    src/transport/ws/cwss.c
     src/distributed/discovery.c
     src/distributed/gossip.c
     src/distributed/ring.c
@@ -127,10 +139,18 @@ set(MB_HEADERS_PUBLIC
     include/msgbroker/mb_tcp.h
     include/msgbroker/mb_ipc.h
     include/msgbroker/mb_inproc.h
+    include/msgbroker/mb_tls.h
+    include/msgbroker/mb_ws.h
+    include/msgbroker/mb_wss.h
     include/msgbroker/mb_cluster.h
 )
 
 include(GNUInstallDirs)
+
+find_package(OpenSSL)
+if(OpenSSL_FOUND)
+    add_definitions(-DMB_HAVE_TLS)
+endif()
 
 if(MB_SHARED_LIB)
     add_library(msgbroker SHARED ${MB_SOURCES})
@@ -146,6 +166,9 @@ if(MB_SHARED_LIB)
     endif()
     if(UNIX AND NOT APPLE)
         target_link_libraries(msgbroker PRIVATE uring)
+    endif()
+    if(OpenSSL_FOUND)
+        target_link_libraries(msgbroker PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     endif()
     if(WIN32)
         target_link_libraries(msgbroker PRIVATE ws2_32)
@@ -167,6 +190,9 @@ if(MB_STATIC_LIB)
     endif()
     if(UNIX AND NOT APPLE)
         target_link_libraries(msgbroker_static PRIVATE uring)
+    endif()
+    if(OpenSSL_FOUND)
+        target_link_libraries(msgbroker_static PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     endif()
     if(WIN32)
         target_link_libraries(msgbroker_static PRIVATE ws2_32)

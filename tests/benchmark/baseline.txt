@@ -1,0 +1,4 @@
+inproc_throughput=7000000
+inproc_latency=0.05
+tcp_throughput=140000
+tcp_latency=3.50
