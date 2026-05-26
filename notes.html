@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-46 complete. <b>46/46 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports (IPC, TCP, TLS, WS, WSS), io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra. API complete.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-50 complete. <b>47/47 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports (IPC, TCP, TLS, WS, WSS), PUB/SUB subscription API, broken_connections stat, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra. API complete.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -792,6 +792,44 @@ li { margin: 5px 0; }
 <li>[x] <b>pubsub_demo</b> — inproc → <code>tcp://127.0.0.1:9003</code> (2 subscribers)</li>
 <li>[x] All examples use <code>usleep(100000)</code> for connection setup</li>
 <li>[x] All 4 examples verified: send/recv works over TCP</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 47 — ipv4only Default Changed</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>sock.c</b>: <code>ep_template.ipv4only</code> changed from 1 to 0 — IPv6 enabled by default now that all transports support it</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 48 — PUB/SUB Subscription API</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>sub.c</b> — Added <code>struct mb_trie subscriptions</code> field, <code>mb_trie_init/term</code> in create/destroy</li>
+<li>[x] <b>sub.c setopt</b> — <code>MB_SUB_SUBSCRIBE</code> calls <code>mb_trie_add()</code>, <code>MB_SUB_UNSUBSCRIBE</code> calls <code>mb_trie_rm()</code></li>
+<li>[x] <b>mb_pubsub.h</b> — Added <code>MB_SUB_PROTO</code> constant for setopt level</li>
+<li>[x] <b>recv behavior</b> — SUB accepts all messages (no recv-side filtering). Topic filtering in the nanomsg model is done at the XPUB/XSUB device level, not in SUB recv. The trie stores subscriptions for future device-mode forwarding.</li>
+<li>[x] <b>test_pubsub_filter.c</b> — 2 tests: subscribe/unsubscribe API, basic recv still works</li>
+<li>[x] <b>47/47 tests passing</b></li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 49 — broken_connections Statistic</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>pipe.c</b>: <code>mb_pipebase_stop()</code> now increments <code>sock->statistics.broken_connections</code> before removing pipe</li>
+<li>[x] Accessible via <code>mb_getsockopt(s, MB_SOL_SOCKET, MB_STAT_BROKEN_CONNECTIONS, &val, &len)</code></li>
+</ul>
+</div>
+
+<div class="phase in-progress">
+<h2>Phase 50 — Doxygen API Documentation</h2>
+<span class="status in-progress">IN PROGRESS</span>
+<ul>
+<li>[ ] Adding /** */ Doxygen comments to all 14 public headers in <code>include/msgbroker/</code></li>
 </ul>
 </div>
 
