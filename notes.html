@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0 release ready.</b> Phases 0-44 complete. <b>46/46 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports (TCP, TLS, WS, WSS), io_uring, distributed cluster. Clean build with -Wall -Wextra. API complete — no stubs, no TODOs. CHANGELOG.md added. Ready for git tag v0.2.0.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-46 complete. <b>46/46 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports (IPC, TCP, TLS, WS, WSS), io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra. API complete.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -768,6 +768,30 @@ li { margin: 5px 0; }
 <li>[x] v0.2.0 changes: WSS transport, IPv6 dual-stack, DNS hostname resolution, auto-reconnect on all transports, shared net.c utility, fuzz testers, benchmark regression CI</li>
 <li>[x] v0.2.0 fixes: TLS cert path truncation, WS server missing TCP_NODELAY, TLS cert test reconnect conflict</li>
 <li>[x] v0.1.0 baseline: original release with 10 protocols, 5 transports, 43 tests</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 45 — IPC Auto-Reconnect</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>cipc.h</b> — Added <code>running</code>, <code>reconnect_thread</code>, <code>lock</code>, <code>path[108]</code> fields</li>
+<li>[x] <b>cipc.c</b> — Rewritten with <code>mb_cipc_reconnect_loop()</code> + <code>mb_cipc_do_connect()</code> pattern (same as ctcp)</li>
+<li>[x] <b>test_ipc.c</b> — Fixed <code>test_ipc_connect_refused</code>: set <code>MB_RECONNECT_IVL=0</code></li>
+<li>[x] Now ALL 5 connect transports support auto-reconnect: IPC, TCP, TLS, WS, WSS</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 46 — Examples Updated to TCP</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>pair_demo</b> — inproc → <code>tcp://127.0.0.1:9000</code></li>
+<li>[x] <b>pipeline_demo</b> — inproc → <code>tcp://127.0.0.1:9001</code></li>
+<li>[x] <b>reqrep_demo</b> — inproc → <code>tcp://127.0.0.1:9002</code></li>
+<li>[x] <b>pubsub_demo</b> — inproc → <code>tcp://127.0.0.1:9003</code> (2 subscribers)</li>
+<li>[x] All examples use <code>usleep(100000)</code> for connection setup</li>
+<li>[x] All 4 examples verified: send/recv works over TCP</li>
 </ul>
 </div>
 

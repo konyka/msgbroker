@@ -8,8 +8,9 @@ int main (void)
     int push = mb_socket (AF_MB, MB_PUSH);
     int pull = mb_socket (AF_MB, MB_PULL);
 
-    mb_bind (pull, "inproc://pipeline");
-    mb_connect (push, "inproc://pipeline");
+    mb_bind (pull, "tcp://127.0.0.1:9001");
+    mb_connect (push, "tcp://127.0.0.1:9001");
+    usleep (100000);
 
     const char *messages[] = { "task1", "task2", "task3", "task4", "task5" };
     int i;

@@ -2,14 +2,16 @@
 #include <msgbroker/mb_reqrep.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 int main (void)
 {
     int req = mb_socket (AF_MB, MB_REQ);
     int rep = mb_socket (AF_MB, MB_REP);
 
-    mb_bind (rep, "inproc://reqrep");
-    mb_connect (req, "inproc://reqrep");
+    mb_bind (rep, "tcp://127.0.0.1:9002");
+    mb_connect (req, "tcp://127.0.0.1:9002");
+    usleep (100000);
 
     mb_send (req, "PING", 4, 0);
     printf ("req sent: PING\n");

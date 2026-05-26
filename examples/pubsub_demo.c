@@ -1,6 +1,7 @@
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pubsub.h>
 #include <stdio.h>
+#include <unistd.h>
 
 int main (void)
 {
@@ -8,9 +9,10 @@ int main (void)
     int sub1 = mb_socket (AF_MB, MB_SUB);
     int sub2 = mb_socket (AF_MB, MB_SUB);
 
-    mb_bind (pub, "inproc://pubsub");
-    mb_connect (sub1, "inproc://pubsub");
-    mb_connect (sub2, "inproc://pubsub");
+    mb_bind (pub, "tcp://127.0.0.1:9003");
+    mb_connect (sub1, "tcp://127.0.0.1:9003");
+    mb_connect (sub2, "tcp://127.0.0.1:9003");
+    usleep (100000);
 
     mb_send (pub, "NEWS", 4, 0);
     printf ("pub broadcast: NEWS\n");

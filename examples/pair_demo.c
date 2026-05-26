@@ -1,6 +1,7 @@
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
 #include <stdio.h>
+#include <unistd.h>
 
 int main (void)
 {
@@ -21,14 +22,17 @@ int main (void)
         return 1;
     }
 
-    mb_bind (s1, "inproc://demo");
-    mb_connect (s2, "inproc://demo");
+    mb_bind (s1, "tcp://127.0.0.1:9000");
+    mb_connect (s2, "tcp://127.0.0.1:9000");
+    usleep (100000);
 
     mb_send (s2, "HELLO", 5, 0);
+    printf ("sent: HELLO\n");
+
     int n = mb_recv (s1, buf, sizeof (buf), 0);
     if (n >= 0) {
         buf[n] = '\0';
-        printf ("received: %s\n", buf);
+        printf ("recv: %s\n", buf);
     }
 
     mb_close (s2);
