@@ -15,6 +15,8 @@ extern "C" {
 #define MB_SUB_SUBSCRIBE   1
 #define MB_SUB_UNSUBSCRIBE 2
 
+#define MB_SUB_PROTO MB_PROTO_PUBSUB
+
 #ifdef __cplusplus
 }
 #endif

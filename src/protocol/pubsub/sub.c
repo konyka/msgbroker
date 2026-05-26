@@ -3,22 +3,26 @@
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
 #include "../../utils/fq.h"
+#include "../../utils/trie.h"
 #include "../../memory/msg.h"
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pubsub.h>
 
 #include <errno.h>
+#include <string.h>
 
 struct mb_sub {
     struct mb_sockbase base;
     struct mb_fq fq;
+    struct mb_trie subscriptions;
 };
 
 static void mb_sub_destroy (struct mb_sockbase *self)
 {
     struct mb_sub *sub = (struct mb_sub *) self;
     mb_fq_term (&sub->fq);
+    mb_trie_term (&sub->subscriptions);
     mb_free (sub);
 }
 
@@ -79,9 +83,23 @@ static int mb_sub_recv (struct mb_sockbase *self, struct mb_msg *msg)
 static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
     const void *optval, size_t optvallen)
 {
-    (void) self; (void) level; (void) option;
-    (void) optval; (void) optvallen;
-    return -ENOPROTOOPT;
+    struct mb_sub *sub = (struct mb_sub *) self;
+
+    if (level != MB_SUB_PROTO)
+        return -ENOPROTOOPT;
+
+    switch (option) {
+    case MB_SUB_SUBSCRIBE:
+        if (!optval || optvallen == 0)
+            return -EINVAL;
+        return mb_trie_add (&sub->subscriptions, optval, optvallen);
+    case MB_SUB_UNSUBSCRIBE:
+        if (!optval || optvallen == 0)
+            return -EINVAL;
+        return mb_trie_rm (&sub->subscriptions, optval, optvallen);
+    default:
+        return -ENOPROTOOPT;
+    }
 }
 
 static int mb_sub_getopt (struct mb_sockbase *self, int level, int option,
@@ -117,6 +135,7 @@ static int mb_sub_create (void *hint, struct mb_sockbase **sockbase)
 
     mb_sockbase_init (&sub->base, &mb_sub_vfptr, NULL);
     mb_fq_init (&sub->fq);
+    mb_trie_init (&sub->subscriptions);
 
     *sockbase = &sub->base;
     return 0;
