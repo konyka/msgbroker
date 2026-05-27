@@ -48,6 +48,7 @@ set(MB_TEST_SOURCES
     unit/test_ipv6_dns.c
     unit/test_reconnect.c
     unit/test_pubsub_filter.c
+    unit/test_stats.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})
