@@ -40,6 +40,9 @@ static void test_sub_subscribe_recv (void)
     sub = mb_socket (AF_MB, MB_SUB);
     assert (sub >= 0);
 
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "sport", 5);
+    assert (rc == 0);
+
     rc = mb_bind (pub, "inproc://subfilter");
     assert (rc >= 0);
     rc = mb_connect (sub, "inproc://subfilter");
@@ -47,12 +50,17 @@ static void test_sub_subscribe_recv (void)
 
     usleep (50000);
 
-    rc = mb_send (pub, "HELLO", 5, 0);
-    assert (rc == 5);
+    rc = mb_send (pub, "news:breaking", 13, 0);
+    assert (rc == 13);
+
+    rc = mb_send (pub, "sport:football", 14, 0);
+    assert (rc == 14);
+
+    usleep (50000);
 
     rc = mb_recv (sub, buf, sizeof (buf), 0);
-    assert (rc == 5);
-    assert (memcmp (buf, "HELLO", 5) == 0);
+    assert (rc == 14);
+    assert (memcmp (buf, "sport:football", 14) == 0);
 
     mb_close (sub);
     mb_close (pub);
