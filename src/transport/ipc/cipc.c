@@ -18,10 +18,12 @@
 
 static void mb_cipc_stop (void *p);
 static void mb_cipc_destroy (void *p);
+static void mb_cipc_on_disconnect (void *p);
 
 static const struct mb_ep_ops mb_cipc_ops = {
     mb_cipc_stop,
     mb_cipc_destroy,
+    mb_cipc_on_disconnect,
 };
 
 static const char *mb_cipc_parse_addr (const char *addr, char *path,
@@ -39,12 +41,25 @@ static const char *mb_cipc_parse_addr (const char *addr, char *path,
     return path;
 }
 
+static void mb_cipc_free_zombie (struct mb_cipc *self)
+{
+    if (self->zombie) {
+        mb_sipc_term (self->zombie);
+        mb_free (self->zombie);
+        self->zombie = NULL;
+    }
+}
+
 static void mb_cipc_reconnect_loop (void *arg)
 {
     struct mb_cipc *self = (struct mb_cipc *) arg;
     int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
     int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
     int current_ivl = ivl;
+
+    mb_mutex_lock (&self->lock);
+    mb_cipc_free_zombie (self);
+    mb_mutex_unlock (&self->lock);
 
     while (self->running) {
         struct sockaddr_un sa;
@@ -91,14 +106,21 @@ static void mb_cipc_reconnect_loop (void *arg)
         if (!self->running) {
             mb_sipc_term (sipc);
             mb_free (sipc);
+            self->reconnecting = 0;
             mb_mutex_unlock (&self->lock);
             return;
         }
         self->sipc = sipc;
+        mb_sipc_set_on_error (sipc, mb_cipc_on_disconnect, self);
         mb_sipc_start (sipc);
+        self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
     }
+
+    mb_mutex_lock (&self->lock);
+    self->reconnecting = 0;
+    mb_mutex_unlock (&self->lock);
 }
 
 static int mb_cipc_do_connect (struct mb_cipc *self)
@@ -128,6 +150,7 @@ static int mb_cipc_do_connect (struct mb_cipc *self)
     }
 
     mb_sipc_create (self->sipc, self->ep, fd);
+    mb_sipc_set_on_error (self->sipc, mb_cipc_on_disconnect, self);
     mb_sipc_start (self->sipc);
     return 0;
 }
@@ -143,7 +166,9 @@ int mb_cipc_create (struct mb_ep *ep)
 
     self->ep = ep;
     self->sipc = NULL;
+    self->zombie = NULL;
     self->running = 1;
+    self->reconnecting = 0;
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
 
@@ -156,6 +181,7 @@ int mb_cipc_create (struct mb_ep *ep)
         return 0;
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        self->reconnecting = 1;
         mb_thread_start (&self->reconnect_thread,
             mb_cipc_reconnect_loop, self);
         return 0;
@@ -164,6 +190,38 @@ int mb_cipc_create (struct mb_ep *ep)
     mb_mutex_term (&self->lock);
     mb_free (self);
     return rc;
+}
+
+static void mb_cipc_on_disconnect (void *p)
+{
+    struct mb_cipc *self = (struct mb_cipc *) p;
+    int start_reconnect = 0;
+
+    mb_mutex_lock (&self->lock);
+    if (!self->running) {
+        mb_mutex_unlock (&self->lock);
+        return;
+    }
+
+    if (self->sipc) {
+        mb_sipc_stop (self->sipc);
+        mb_cipc_free_zombie (self);
+        self->zombie = self->sipc;
+        self->sipc = NULL;
+    }
+
+    if (mb_ep_sock (self->ep)->reconnect_ivl > 0 && !self->reconnecting) {
+        self->reconnecting = 1;
+        start_reconnect = 1;
+    }
+    mb_mutex_unlock (&self->lock);
+
+    if (start_reconnect) {
+        mb_thread_term (&self->reconnect_thread);
+        mb_thread_init (&self->reconnect_thread);
+        mb_thread_start (&self->reconnect_thread,
+            mb_cipc_reconnect_loop, self);
+    }
 }
 
 static void mb_cipc_stop (void *p)
@@ -178,6 +236,7 @@ static void mb_cipc_stop (void *p)
         mb_free (self->sipc);
         self->sipc = NULL;
     }
+    mb_cipc_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
     mb_thread_term (&self->reconnect_thread);
@@ -193,6 +252,7 @@ static void mb_cipc_destroy (void *p)
         mb_sipc_term (self->sipc);
         mb_free (self->sipc);
     }
+    mb_cipc_free_zombie (self);
 
     mb_mutex_term (&self->lock);
     mb_free (self);

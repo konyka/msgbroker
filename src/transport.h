@@ -35,6 +35,7 @@ struct mb_optset {
 struct mb_ep_ops {
     void (*stop) (void *transport);
     void (*destroy) (void *transport);
+    void (*on_disconnect) (void *transport);
 };
 
 /******************************************************************************/

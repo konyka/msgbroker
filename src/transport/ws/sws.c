@@ -186,8 +186,32 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     self->payload_len = 0;
     self->payload_offset = 0;
     memset (self->mask_key, 0, 4);
+    self->disconnected = 0;
+    self->on_error = NULL;
+    self->on_error_arg = NULL;
     mb_msg_init (&self->inmsg, 0);
     return 0;
+}
+
+void mb_sws_set_on_error (struct mb_sws *self, void (*cb) (void *), void *arg)
+{
+    self->on_error = cb;
+    self->on_error_arg = arg;
+}
+
+static void mb_sws_report_error (struct mb_sws *self)
+{
+    void (*cb) (void *);
+    void *arg;
+
+    if (self->disconnected)
+        return;
+    self->disconnected = 1;
+    cb = self->on_error;
+    arg = self->on_error_arg;
+    self->on_error = NULL;
+    if (cb)
+        cb (arg);
 }
 
 void mb_sws_term (struct mb_sws *self)
@@ -248,6 +272,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         int rc = mb_sws_send_frame (self, MB_WS_OPCODE_BINARY, frame,
             frame_len);
         mb_free (frame);
+        if (rc < 0 && rc != -EAGAIN)
+            mb_sws_report_error (self);
         return rc;
     }
 }
@@ -266,10 +292,13 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 mb_sws_do_recv (self, self->inhdr + self->inpos,
                     (size_t) (2 - self->inpos), &nr);
                 if (nr <= 0) {
-                    if (nr == 0)
+                    if (nr == 0) {
+                        mb_sws_report_error (self);
                         return -ECONNRESET;
+                    }
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
                         return -EAGAIN;
+                    mb_sws_report_error (self);
                     return -errno;
                 }
                 self->inpos += (int) nr;
@@ -296,10 +325,13 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 mb_sws_do_recv (self, self->inhdr + self->inpos,
                     (size_t) (need - self->inpos), &nr);
                 if (nr <= 0) {
-                    if (nr == 0)
+                    if (nr == 0) {
+                        mb_sws_report_error (self);
                         return -ECONNRESET;
+                    }
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
                         return -EAGAIN;
+                    mb_sws_report_error (self);
                     return -errno;
                 }
                 self->inpos += (int) nr;
@@ -336,6 +368,7 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
 
                 if (opcode == MB_WS_OPCODE_CLOSE) {
                     mb_sws_send_frame (self, MB_WS_OPCODE_CLOSE, NULL, 0);
+                    mb_sws_report_error (self);
                     return -ECONNRESET;
                 }
 
@@ -348,8 +381,10 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                             mb_sws_do_recv (self,
                                 ping_data + have,
                                 (size_t) (self->payload_len - have), &nr);
-                            if (nr <= 0)
+                            if (nr <= 0) {
+                                mb_sws_report_error (self);
                                 return -ECONNRESET;
+                            }
                             have += (int) nr;
                         }
                         if (masked)
@@ -392,10 +427,13 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     (size_t) (remaining - have), &nr);
                 if (nr <= 0) {
                     mb_free (body);
-                    if (nr == 0)
+                    if (nr == 0) {
+                        mb_sws_report_error (self);
                         return -ECONNRESET;
+                    }
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
                         return -EAGAIN;
+                    mb_sws_report_error (self);
                     return -errno;
                 }
                 have += (int) nr;

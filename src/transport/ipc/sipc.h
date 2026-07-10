@@ -19,11 +19,15 @@ struct mb_sipc {
     int inpos;
     int inlen;
     int instate;
+    int disconnected;
+    void (*on_error) (void *arg);
+    void *on_error_arg;
 };
 
 int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd);
 void mb_sipc_term (struct mb_sipc *self);
 void mb_sipc_start (struct mb_sipc *self);
 void mb_sipc_stop (struct mb_sipc *self);
+void mb_sipc_set_on_error (struct mb_sipc *self, void (*cb) (void *), void *arg);
 
 #endif

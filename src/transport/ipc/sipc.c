@@ -75,6 +75,9 @@ int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
     self->inpos = 0;
     self->inlen = 0;
     self->instate = MB_SIPC_INSTATE_HDR;
+    self->disconnected = 0;
+    self->on_error = NULL;
+    self->on_error_arg = NULL;
     mb_msg_init (&self->inmsg, 0);
     return 0;
 }
@@ -105,6 +108,27 @@ void mb_sipc_stop (struct mb_sipc *self)
     }
 }
 
+void mb_sipc_set_on_error (struct mb_sipc *self, void (*cb) (void *), void *arg)
+{
+    self->on_error = cb;
+    self->on_error_arg = arg;
+}
+
+static void mb_sipc_report_error (struct mb_sipc *self)
+{
+    void (*cb) (void *);
+    void *arg;
+
+    if (self->disconnected)
+        return;
+    self->disconnected = 1;
+    cb = self->on_error;
+    arg = self->on_error_arg;
+    self->on_error = NULL;
+    if (cb)
+        cb (arg);
+}
+
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
@@ -112,21 +136,29 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
     int rc;
     size_t body_size;
 
-    if (self->fd < 0)
+    if (self->fd < 0) {
+        mb_sipc_report_error (self);
         return -ECONNRESET;
+    }
 
     body_size = mb_chunkref_size (&msg->body);
     mb_wire_put_uint32 (hdr, (uint32_t) body_size);
 
     rc = mb_sipc_send_fd (self->fd, hdr, MB_SIPC_HDR_SIZE);
-    if (rc < 0)
+    if (rc < 0) {
+        if (rc != -EAGAIN)
+            mb_sipc_report_error (self);
         return rc;
+    }
 
     if (body_size > 0) {
         rc = mb_sipc_send_fd (self->fd, mb_chunkref_data (&msg->body),
             body_size);
-        if (rc < 0)
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_sipc_report_error (self);
             return rc;
+        }
     }
 
     mb_msg_term (msg);
@@ -141,8 +173,10 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
     struct pollfd pfd;
     uint32_t body_size;
 
-    if (self->fd < 0)
+    if (self->fd < 0) {
+        mb_sipc_report_error (self);
         return -ECONNRESET;
+    }
 
     if (self->instate == MB_SIPC_INSTATE_HASMSG) {
         mb_msg_mv (msg, &self->inmsg);
@@ -164,13 +198,16 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         if (rc < 0) {
             if (rc == -EAGAIN)
                 return -EAGAIN;
+            mb_sipc_report_error (self);
             return rc;
         }
         self->inpos = MB_SIPC_HDR_SIZE;
 
         body_size = mb_wire_get_uint32 (self->inhdr);
-        if (body_size > 1024 * 1024)
+        if (body_size > 1024 * 1024) {
+            mb_sipc_report_error (self);
             return -EMSGSIZE;
+        }
 
         mb_msg_term (&self->inmsg);
         mb_msg_init (&self->inmsg, (size_t) body_size);
@@ -187,6 +224,7 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
             if (rc < 0) {
                 if (rc == -EAGAIN)
                     return -EAGAIN;
+                mb_sipc_report_error (self);
                 return rc;
             }
         }

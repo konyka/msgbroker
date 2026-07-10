@@ -13,7 +13,9 @@ struct mb_ep;
 struct mb_cws {
     struct mb_ep *ep;
     struct mb_sws *sws;
+    struct mb_sws *zombie;   /* stopped session awaiting free */
     int running;
+    int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;
     char host[256];

@@ -26,6 +26,7 @@ static void mb_binproc_destroy (void *p);
 static const struct mb_ep_ops mb_binproc_ops = {
     mb_binproc_stop,
     mb_binproc_destroy,
+    NULL,
 };
 
 static void mb_binproc_connect_cb (struct mb_ins_item *self,
@@ -93,7 +94,7 @@ static void mb_binproc_stop (void *p)
 
     while (!mb_list_empty (&self->sinprocs)) {
         it = mb_list_begin (&self->sinprocs);
-        sinproc = (struct mb_sinproc *) it;
+        sinproc = mb_cont (it, struct mb_sinproc, item);
         mb_list_erase (&self->sinprocs, it);
         mb_sinproc_stop (sinproc);
         mb_sinproc_term (sinproc);
@@ -114,7 +115,7 @@ static void mb_binproc_destroy (void *p)
 
     while (!mb_list_empty (&self->sinprocs)) {
         it = mb_list_begin (&self->sinprocs);
-        sinproc = (struct mb_sinproc *) it;
+        sinproc = mb_cont (it, struct mb_sinproc, item);
         mb_list_erase (&self->sinprocs, it);
         mb_sinproc_stop (sinproc);
         mb_sinproc_term (sinproc);

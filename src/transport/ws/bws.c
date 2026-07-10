@@ -29,6 +29,7 @@ static void mb_bws_destroy (void *p);
 static const struct mb_ep_ops mb_bws_ops = {
     mb_bws_stop,
     mb_bws_destroy,
+    NULL,
 };
 
 static const char mb_ws_accept_key[] =

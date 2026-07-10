@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-50 complete. <b>47/47 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports (IPC, TCP, TLS, WS, WSS), PUB/SUB subscription API, broken_connections stat, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra. API complete.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-53 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -833,6 +833,44 @@ li { margin: 5px 0; }
 <li>[x] All function declarations documented with @brief, @param, @return</li>
 <li>[x] All constants and socket types documented</li>
 <li>[x] 47/47 tests passing after documentation changes</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 51 — PUB/SUB Recv-Side Topic Filtering</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>sub.c</b>: Added <code>has_subscriptions</code> flag (default 0). Set to 1 on first MB_SUB_SUBSCRIBE</li>
+<li>[x] <b>sub_recv</b>: If <code>has_subscriptions</code>, checks <code>mb_trie_match()</code> on message body. Non-matching messages are dropped and -EAGAIN is returned</li>
+<li>[x] <b>Root cause</b>: <code>mb_trie_init()</code> always allocates a root node (never NULL). Used flag instead of null check</li>
+<li>[x] <b>test_pubsub_filter</b>: Updated to verify topic filtering — "news:breaking" filtered, "sport:football" received</li>
+<li>[x] 48/48 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 52 — Statistics Test</h2>
+<span class="status done">DONE</span>
+<ul>
+<li>[x] <b>test_stats.c</b>: 2 tests — messages_sent/received counts, broken_connections initial value</li>
+<li>[x] Uses <code>mb_get_statistic(s, MB_STAT_*)</code> public API</li>
+<li>[x] Note: broken_connections only increments on explicit pipebase_stop (orderly close), not on TCP RST (connection errors don't trigger pipebase_stop in current architecture)</li>
+<li>[x] 48/48 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 53 — Mid-Stream Disconnect Auto-Reconnect</h2>
+<span class="status done">DONE</span>
+<p>Session layers report hard I/O errors to connect endpoints so an established pipe that breaks mid-stream tears down and restarts the reconnect loop (distinct from initial-connect-failure reconnect in Phase 36/39).</p>
+<ul>
+<li>[x] <b>sipc/stls/sws</b>: <code>on_error</code> + <code>disconnected</code> flag; report once on hard errors; never treat <code>-EAGAIN</code> as disconnect (sipc send path fixed)</li>
+<li>[x] <b>cipc/ctcp/ctls/cws/cwss</b>: <code>on_disconnect</code> stops the pipe/fd but defers session free via <code>zombie</code> (avoids UAF while still inside recv/send); reconnect thread frees zombie then retries</li>
+<li>[x] <b>mb_thread_term/join</b>: join + clear handle so reconnect threads are not leaked</li>
+<li>[x] <b>mb_sock_shutdown</b>: synchronously stop/destroy all endpoints on close (fixes listen-fd leak that blocked port rebind)</li>
+<li>[x] <b>btcp/bipc/btls/binproc</b>: use <code>mb_cont(..., item)</code> when walking session lists (item is not the first struct field)</li>
+<li>[x] <b>test_reconnect_disc</b>: TCP/IPC/WS/TLS/WSS — close server mid-stream, rebind, verify client resumes messaging</li>
+<li>[x] 49/49 tests passing</li>
 </ul>
 </div>
 

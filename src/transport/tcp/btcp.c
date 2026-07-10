@@ -6,6 +6,7 @@
 #include "../../utils/err.h"
 #include "../../utils/net.h"
 #include "../../utils/list.h"
+#include "../../utils/cont.h"
 
 #include <msgbroker/mb.h>
 
@@ -27,6 +28,7 @@ static void mb_btcp_destroy (void *p);
 static const struct mb_ep_ops mb_btcp_ops = {
     mb_btcp_stop,
     mb_btcp_destroy,
+    NULL,
 };
 
 static void mb_btcp_accept_loop (void *arg)
@@ -118,7 +120,7 @@ static void mb_btcp_cleanup (struct mb_btcp *self)
 {
     while (!mb_list_empty (&self->sipcs)) {
         struct mb_list_item *it = mb_list_begin (&self->sipcs);
-        struct mb_sipc *sipc = (struct mb_sipc *) it;
+        struct mb_sipc *sipc = mb_cont (it, struct mb_sipc, item);
         mb_list_erase (&self->sipcs, it);
         mb_sipc_stop (sipc);
         mb_sipc_term (sipc);

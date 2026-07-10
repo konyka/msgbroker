@@ -24,6 +24,9 @@ struct mb_sws {
     int payload_offset;
     uint8_t mask_key[4];
     struct ssl_st *ssl;
+    int disconnected;
+    void (*on_error) (void *arg);
+    void *on_error_arg;
 };
 
 int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
@@ -31,5 +34,6 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
 void mb_sws_term (struct mb_sws *self);
 void mb_sws_start (struct mb_sws *self);
 void mb_sws_stop (struct mb_sws *self);
+void mb_sws_set_on_error (struct mb_sws *self, void (*cb) (void *), void *arg);
 
 #endif

@@ -49,7 +49,8 @@ void mb_thread_init (struct mb_thread *self)
 
 void mb_thread_term (struct mb_thread *self)
 {
-    (void) self;
+    /* Join if still running; safe no-op when already joined. */
+    (void) mb_thread_join (self);
 }
 
 int mb_thread_start (struct mb_thread *self, mb_thread_fn routine, void *arg)
@@ -80,10 +81,19 @@ int mb_thread_start (struct mb_thread *self, mb_thread_fn routine, void *arg)
 int mb_thread_join (struct mb_thread *self)
 {
 #if defined _WIN32
+    if (!self->handle)
+        return 0;
     WaitForSingleObject (self->handle, INFINITE);
     CloseHandle (self->handle);
+    self->handle = NULL;
     return 0;
 #else
-    return pthread_join (self->handle, NULL);
+    int rc;
+
+    if (!self->handle)
+        return 0;
+    rc = pthread_join (self->handle, NULL);
+    self->handle = (pthread_t) 0;
+    return rc;
 #endif
 }

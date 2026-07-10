@@ -6,6 +6,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
 #include "../../utils/list.h"
+#include "../../utils/cont.h"
 
 #include <msgbroker/mb.h>
 
@@ -26,6 +27,7 @@ static void mb_bipc_destroy (void *p);
 static const struct mb_ep_ops mb_bipc_ops = {
     mb_bipc_stop,
     mb_bipc_destroy,
+    NULL,
 };
 
 static const char *mb_bipc_parse_addr (const char *addr, char *path,
@@ -154,7 +156,7 @@ static void mb_bipc_stop (void *p)
     mb_mutex_lock (&self->lock);
     while (!mb_list_empty (&self->sipcs)) {
         struct mb_list_item *it = mb_list_begin (&self->sipcs);
-        struct mb_sipc *sipc = (struct mb_sipc *) it;
+        struct mb_sipc *sipc = mb_cont (it, struct mb_sipc, item);
         mb_list_erase (&self->sipcs, it);
         mb_sipc_stop (sipc);
         mb_sipc_term (sipc);
@@ -179,7 +181,7 @@ static void mb_bipc_destroy (void *p)
 
     while (!mb_list_empty (&self->sipcs)) {
         struct mb_list_item *it = mb_list_begin (&self->sipcs);
-        struct mb_sipc *sipc = (struct mb_sipc *) it;
+        struct mb_sipc *sipc = mb_cont (it, struct mb_sipc, item);
         mb_list_erase (&self->sipcs, it);
         mb_sipc_stop (sipc);
         mb_sipc_term (sipc);

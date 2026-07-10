@@ -73,6 +73,11 @@ void mb_ep_stop (struct mb_ep *self)
 void mb_ep_stopped_cb (struct mb_ep *self)
 {
     self->state = MB_EP_STATE_IDLE;
+    /* During synchronous sock shutdown the endpoint is freed immediately
+     * after stop/term; do not queue MB_EP_STOPPED (would UAF the event). */
+    if (self->sock->state == MB_SOCK_STATE_STOPPING_EPS ||
+        self->sock->state == MB_SOCK_STATE_STOPPING)
+        return;
     if (self->fsm.owner)
         mb_fsm_raise (self->fsm.owner, &self->fsm.stopped, MB_EP_STOPPED);
 }

@@ -71,8 +71,32 @@ int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl)
     self->inpos = 0;
     self->inlen = 0;
     self->instate = MB_STLS_INSTATE_HDR;
+    self->disconnected = 0;
+    self->on_error = NULL;
+    self->on_error_arg = NULL;
     mb_msg_init (&self->inmsg, 0);
     return 0;
+}
+
+void mb_stls_set_on_error (struct mb_stls *self, void (*cb) (void *), void *arg)
+{
+    self->on_error = cb;
+    self->on_error_arg = arg;
+}
+
+static void mb_stls_report_error (struct mb_stls *self)
+{
+    void (*cb) (void *);
+    void *arg;
+
+    if (self->disconnected)
+        return;
+    self->disconnected = 1;
+    cb = self->on_error;
+    arg = self->on_error_arg;
+    self->on_error = NULL;
+    if (cb)
+        cb (arg);
 }
 
 void mb_stls_term (struct mb_stls *self)
@@ -115,14 +139,20 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
     mb_wire_put_uint32 (hdr, (uint32_t) bodysz);
 
     rc = mb_stls_send_ssl (self->ssl, hdr, MB_STLS_HDR_SIZE);
-    if (rc < 0)
+    if (rc < 0) {
+        if (rc != -EAGAIN)
+            mb_stls_report_error (self);
         return rc;
+    }
 
     if (bodysz > 0) {
         body = mb_chunkref_data (&msg->body);
         rc = mb_stls_send_ssl (self->ssl, body, bodysz);
-        if (rc < 0)
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_stls_report_error (self);
             return rc;
+        }
     }
 
     return 0;
@@ -145,8 +175,11 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         rc = mb_stls_recv_ssl (self->ssl,
             self->inhdr + self->inpos,
             MB_STLS_HDR_SIZE - self->inpos);
-        if (rc < 0)
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_stls_report_error (self);
             return rc;
+        }
 
         self->inlen = (int) mb_wire_get_uint32 (self->inhdr);
         self->inpos = 0;
@@ -164,8 +197,11 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
             rc = mb_stls_recv_ssl (self->ssl,
                 (uint8_t *) body + self->inpos,
                 (size_t) self->inlen - self->inpos);
-            if (rc < 0)
+            if (rc < 0) {
+                if (rc != -EAGAIN)
+                    mb_stls_report_error (self);
                 return rc;
+            }
         }
 
         self->instate = MB_STLS_INSTATE_HASMSG;

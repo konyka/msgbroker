@@ -25,6 +25,7 @@ static void mb_cinproc_destroy (void *p);
 static const struct mb_ep_ops mb_cinproc_ops = {
     mb_cinproc_stop,
     mb_cinproc_destroy,
+    NULL,
 };
 
 static void mb_cinproc_connect_cb (struct mb_ins_item *self,

@@ -28,16 +28,20 @@
 
 static void mb_cwss_stop (void *p);
 static void mb_cwss_destroy (void *p);
+static void mb_cwss_on_disconnect (void *p);
 
 static const struct mb_ep_ops mb_cwss_ops = {
     mb_cwss_stop,
     mb_cwss_destroy,
+    mb_cwss_on_disconnect,
 };
 
 struct mb_cwss {
     struct mb_ep *ep;
     struct mb_sws *sws;
+    struct mb_sws *zombie;   /* stopped session awaiting free */
     int running;
+    int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;
     char host[256];
@@ -166,12 +170,25 @@ static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd)
     return ssl;
 }
 
+static void mb_cwss_free_zombie (struct mb_cwss *self)
+{
+    if (self->zombie) {
+        mb_sws_term (self->zombie);
+        mb_free (self->zombie);
+        self->zombie = NULL;
+    }
+}
+
 static void mb_cwss_reconnect_loop (void *arg)
 {
     struct mb_cwss *self = (struct mb_cwss *) arg;
     int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
     int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
     int current_ivl = ivl;
+
+    mb_mutex_lock (&self->lock);
+    mb_cwss_free_zombie (self);
+    mb_mutex_unlock (&self->lock);
 
     while (self->running) {
         int fd;
@@ -222,19 +239,26 @@ static void mb_cwss_reconnect_loop (void *arg)
 
         mb_sws_create (sws, self->ep, fd, 1);
         sws->ssl = ssl;
+        mb_sws_set_on_error (sws, mb_cwss_on_disconnect, self);
 
         mb_mutex_lock (&self->lock);
         if (!self->running) {
             mb_sws_term (sws);
             mb_free (sws);
+            self->reconnecting = 0;
             mb_mutex_unlock (&self->lock);
             return;
         }
         self->sws = sws;
         mb_sws_start (sws);
+        self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
     }
+
+    mb_mutex_lock (&self->lock);
+    self->reconnecting = 0;
+    mb_mutex_unlock (&self->lock);
 }
 
 static int mb_cwss_do_connect (struct mb_cwss *self)
@@ -269,6 +293,7 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
 
     mb_sws_create (self->sws, self->ep, fd, 1);
     self->sws->ssl = ssl;
+    mb_sws_set_on_error (self->sws, mb_cwss_on_disconnect, self);
     mb_sws_start (self->sws);
     return 0;
 }
@@ -284,7 +309,9 @@ int mb_cwss_create (struct mb_ep *ep)
 
     self->ep = ep;
     self->sws = NULL;
+    self->zombie = NULL;
     self->running = 1;
+    self->reconnecting = 0;
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
 
@@ -302,6 +329,7 @@ int mb_cwss_create (struct mb_ep *ep)
         return 0;
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        self->reconnecting = 1;
         mb_thread_start (&self->reconnect_thread,
             mb_cwss_reconnect_loop, self);
         return 0;
@@ -310,6 +338,38 @@ int mb_cwss_create (struct mb_ep *ep)
     mb_mutex_term (&self->lock);
     mb_free (self);
     return rc;
+}
+
+static void mb_cwss_on_disconnect (void *p)
+{
+    struct mb_cwss *self = (struct mb_cwss *) p;
+    int start_reconnect = 0;
+
+    mb_mutex_lock (&self->lock);
+    if (!self->running) {
+        mb_mutex_unlock (&self->lock);
+        return;
+    }
+
+    if (self->sws) {
+        mb_sws_stop (self->sws);
+        mb_cwss_free_zombie (self);
+        self->zombie = self->sws;
+        self->sws = NULL;
+    }
+
+    if (mb_ep_sock (self->ep)->reconnect_ivl > 0 && !self->reconnecting) {
+        self->reconnecting = 1;
+        start_reconnect = 1;
+    }
+    mb_mutex_unlock (&self->lock);
+
+    if (start_reconnect) {
+        mb_thread_term (&self->reconnect_thread);
+        mb_thread_init (&self->reconnect_thread);
+        mb_thread_start (&self->reconnect_thread,
+            mb_cwss_reconnect_loop, self);
+    }
 }
 
 static void mb_cwss_stop (void *p)
@@ -324,6 +384,7 @@ static void mb_cwss_stop (void *p)
         mb_free (self->sws);
         self->sws = NULL;
     }
+    mb_cwss_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
     mb_thread_term (&self->reconnect_thread);
@@ -339,6 +400,7 @@ static void mb_cwss_destroy (void *p)
         mb_sws_term (self->sws);
         mb_free (self->sws);
     }
+    mb_cwss_free_zombie (self);
 
     mb_mutex_term (&self->lock);
     mb_free (self);

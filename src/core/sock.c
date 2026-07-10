@@ -2,6 +2,8 @@
 #include "../transport.h"
 #include "../memory/msg.h"
 #include "../aio/pool.h"
+#include "../utils/alloc.h"
+#include "../utils/cont.h"
 
 #include "sock.h"
 #include "global.h"
@@ -361,15 +363,35 @@ static void mb_sock_shutdown (struct mb_fsm *fsm, int src, int type,
 
     if (self->state == MB_SOCK_STATE_ACTIVE) {
         self->state = MB_SOCK_STATE_STOPPING_EPS;
-        if (mb_list_empty (&self->eps) && mb_list_empty (&self->sdeps)) {
-            self->state = MB_SOCK_STATE_STOPPING;
-            if (self->sockbase && self->sockbase->vfptr->stop)
-                self->sockbase->vfptr->stop (self->sockbase);
-            if (self->sockbase)
-                self->sockbase->vfptr->destroy (self->sockbase);
-            self->sockbase = NULL;
-            self->state = MB_SOCK_STATE_INIT;
-            mb_sock_stopped (self);
+
+        /* Synchronously stop/destroy all endpoints. The async
+         * MB_EP_STOPPED path is never drained by the current ctx
+         * event loop, so close() would otherwise leak listen fds
+         * and leave ports bound forever. */
+        while (!mb_list_empty (&self->eps)) {
+            struct mb_list_item *it = mb_list_begin (&self->eps);
+            struct mb_ep *ep = mb_cont (it, struct mb_ep, item);
+            mb_list_erase (&self->eps, it);
+            mb_ep_stop (ep);
+            mb_ep_term (ep);
+            mb_free (ep);
         }
+        while (!mb_list_empty (&self->sdeps)) {
+            struct mb_list_item *it = mb_list_begin (&self->sdeps);
+            struct mb_ep *ep = mb_cont (it, struct mb_ep, item);
+            mb_list_erase (&self->sdeps, it);
+            mb_ep_stop (ep);
+            mb_ep_term (ep);
+            mb_free (ep);
+        }
+
+        self->state = MB_SOCK_STATE_STOPPING;
+        if (self->sockbase && self->sockbase->vfptr->stop)
+            self->sockbase->vfptr->stop (self->sockbase);
+        if (self->sockbase)
+            self->sockbase->vfptr->destroy (self->sockbase);
+        self->sockbase = NULL;
+        self->state = MB_SOCK_STATE_INIT;
+        mb_sock_stopped (self);
     }
 }
