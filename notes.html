@@ -1021,5 +1021,16 @@ li { margin: 5px 0; }
 </ul>
 </div>
 
+<div class="phase done">
+<h2>Phase 66 — Bind Listen-FD Release &amp; Accept Thread Start Checks</h2>
+<span class="status done">DONE</span>
+<p>WS/WSS bind stop left the listen socket open until destroy (EADDRINUSE on re-bind); accept-thread spawn failures returned success with nobody listening.</p>
+<ul>
+<li>[x] <b>bws/bwss</b>: close <code>listen_fd</code> in <code>stop</code> (aligned with btcp/btls/bipc)</li>
+<li>[x] <b>btcp/bipc/btls/bws/bwss</b>: check <code>mb_thread_start</code> on create; rollback listen fd/ctx on failure</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
 </body>
 </html>
