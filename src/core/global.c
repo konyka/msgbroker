@@ -390,6 +390,10 @@ static int mb_global_create_ep (struct mb_sock *sock, const char *addr,
     const struct mb_transport *tp;
     struct mb_ep *ep;
 
+    if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+        MB_SOCK_FLAG_STOPPING)
+        return -EBADF;
+
     tp = mb_global_find_transport (addr);
     if (!tp)
         return -EPROTONOSUPPORT;
@@ -404,7 +408,20 @@ static int mb_global_create_ep (struct mb_sock *sock, const char *addr,
         return rc;
     }
 
+    mb_ctx_enter (&sock->ctx);
+    if ((__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) ||
+        sock->state != MB_SOCK_STATE_ACTIVE) {
+        mb_ctx_leave (&sock->ctx);
+        mb_ep_stop (ep);
+        mb_ep_term (ep);
+        mb_free (ep);
+        return -EBADF;
+    }
+
     mb_list_insert (&sock->eps, &ep->item, mb_list_end (&sock->eps));
+    mb_ctx_leave (&sock->ctx);
+
     mb_ep_start (ep);
 
     return ep->eid;

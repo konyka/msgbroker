@@ -88,8 +88,53 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
 
 void mb_sock_stop (struct mb_sock *self)
 {
+    struct mb_list stopping;
+    struct mb_list_item *it;
+
+    /* Splice endpoints out under ctx, then stop/join them without the
+     * lock so accept threads can finish pipe_add/rm (which need ctx). */
+    mb_list_init (&stopping);
+
     mb_ctx_enter (&self->ctx);
-    mb_fsm_stop (&self->fsm);
+    if (self->state != MB_SOCK_STATE_ACTIVE) {
+        mb_ctx_leave (&self->ctx);
+        return;
+    }
+    self->state = MB_SOCK_STATE_STOPPING_EPS;
+
+    while (!mb_list_empty (&self->eps)) {
+        it = mb_list_begin (&self->eps);
+        mb_list_erase (&self->eps, it);
+        mb_list_insert (&stopping, it, mb_list_end (&stopping));
+    }
+    while (!mb_list_empty (&self->sdeps)) {
+        it = mb_list_begin (&self->sdeps);
+        mb_list_erase (&self->sdeps, it);
+        mb_list_insert (&stopping, it, mb_list_end (&stopping));
+    }
+    mb_ctx_leave (&self->ctx);
+
+    while (!mb_list_empty (&stopping)) {
+        struct mb_ep *ep;
+
+        it = mb_list_begin (&stopping);
+        ep = mb_cont (it, struct mb_ep, item);
+        mb_list_erase (&stopping, it);
+        mb_ep_stop (ep);
+        mb_ep_term (ep);
+        mb_free (ep);
+    }
+    mb_list_term (&stopping);
+
+    mb_ctx_enter (&self->ctx);
+    self->state = MB_SOCK_STATE_STOPPING;
+    if (self->sockbase && self->sockbase->vfptr->stop)
+        self->sockbase->vfptr->stop (self->sockbase);
+    if (self->sockbase)
+        self->sockbase->vfptr->destroy (self->sockbase);
+    self->sockbase = NULL;
+    self->state = MB_SOCK_STATE_INIT;
+    mb_sock_stopped (self);
     mb_ctx_leave (&self->ctx);
 }
 
@@ -279,11 +324,23 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
 
 int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
 {
+    /* Accept/reconnect threads must not take ctx here: mb_sock_stop joins
+     * those threads and briefly holds ctx only around list splice/destroy. */
+    if (__atomic_load_n (&self->flags, __ATOMIC_ACQUIRE) &
+        MB_SOCK_FLAG_STOPPING)
+        return -EBADF;
+    if (!self->sockbase)
+        return -EBADF;
     return self->sockbase->vfptr->add (self->sockbase, pipe);
 }
 
 void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
 {
+    if (__atomic_load_n (&self->flags, __ATOMIC_ACQUIRE) &
+        MB_SOCK_FLAG_STOPPING)
+        return;
+    if (!self->sockbase)
+        return;
     self->sockbase->vfptr->rm (self->sockbase, pipe);
 }
 
