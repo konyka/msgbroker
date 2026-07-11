@@ -420,10 +420,16 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                         self->inhdr[3]);
                     hdr_used += 2;
                 } else {
+                    /* RFC 6455: 8-byte length. Reject if >32-bit or oversized. */
+                    if (self->inhdr[2] | self->inhdr[3] |
+                        self->inhdr[4] | self->inhdr[5]) {
+                        mb_sws_report_error (self);
+                        return -EMSGSIZE;
+                    }
                     self->payload_len = (int) (
-                        ((uint64_t) self->inhdr[6] << 24) |
-                        ((uint64_t) self->inhdr[7] << 16) |
-                        ((uint64_t) self->inhdr[8] << 8) |
+                        ((uint32_t) self->inhdr[6] << 24) |
+                        ((uint32_t) self->inhdr[7] << 16) |
+                        ((uint32_t) self->inhdr[8] << 8) |
                         self->inhdr[9]);
                     hdr_used += 8;
                 }
