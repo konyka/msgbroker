@@ -12,6 +12,7 @@ struct mb_btcp {
     struct mb_ep *ep;
     int listen_fd;
     struct mb_list sipcs;
+    struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
     int running;

@@ -27,14 +27,59 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+struct mb_bwss {
+    struct mb_ep *ep;
+    int listen_fd;
+    SSL_CTX *ctx;
+    struct mb_list sws_list;
+    struct mb_list zombies;
+    struct mb_mutex lock;
+    int running;
+    struct mb_thread accept_thread;
+};
+
 static void mb_bwss_stop (void *p);
 static void mb_bwss_destroy (void *p);
+static void mb_bwss_on_session_error (void *p);
+static void mb_bwss_free_zombies (struct mb_bwss *self);
 
 static const struct mb_ep_ops mb_bwss_ops = {
     mb_bwss_stop,
     mb_bwss_destroy,
     NULL,
 };
+
+static void mb_bwss_free_zombies (struct mb_bwss *self)
+{
+    while (!mb_list_empty (&self->zombies)) {
+        struct mb_list_item *it = mb_list_begin (&self->zombies);
+        struct mb_sws *sws = mb_cont (it, struct mb_sws, item);
+        mb_list_erase (&self->zombies, it);
+        mb_sws_term (sws);
+        mb_free (sws);
+    }
+}
+
+static void mb_bwss_on_session_error (void *p)
+{
+    struct mb_bwss *self = (struct mb_bwss *) p;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    mb_mutex_lock (&self->lock);
+    for (it = mb_list_begin (&self->sws_list);
+        it != mb_list_end (&self->sws_list); it = next) {
+        struct mb_sws *sws = mb_cont (it, struct mb_sws, item);
+        next = mb_list_next (&self->sws_list, it);
+        if (!sws->disconnected)
+            continue;
+        mb_list_erase (&self->sws_list, it);
+        mb_sws_stop (sws);
+        mb_list_insert (&self->zombies, &sws->item,
+            mb_list_end (&self->zombies));
+    }
+    mb_mutex_unlock (&self->lock);
+}
 
 static const char mb_wss_accept_key[] =
     "258EAFA5-E914-47DA-95CA-5AB5F8A5B5E3";
@@ -210,16 +255,6 @@ static int mb_bwss_do_handshake (SSL *ssl, int fd)
     return mb_bwss_ssl_write_all (ssl, resp, strlen (resp));
 }
 
-struct mb_bwss {
-    struct mb_ep *ep;
-    int listen_fd;
-    SSL_CTX *ctx;
-    struct mb_list sws_list;
-    struct mb_mutex lock;
-    int running;
-    struct mb_thread accept_thread;
-};
-
 static void mb_bwss_accept_loop (void *arg)
 {
     struct mb_bwss *self = (struct mb_bwss *) arg;
@@ -227,6 +262,10 @@ static void mb_bwss_accept_loop (void *arg)
     while (self->running) {
         struct pollfd pfd;
         int rc;
+
+        mb_mutex_lock (&self->lock);
+        mb_bwss_free_zombies (self);
+        mb_mutex_unlock (&self->lock);
 
         pfd.fd = self->listen_fd;
         pfd.events = POLLIN;
@@ -282,6 +321,7 @@ static void mb_bwss_accept_loop (void *arg)
 
             mb_sws_create (sws, self->ep, client_fd, 0);
             sws->ssl = ssl;
+            mb_sws_set_on_error (sws, mb_bwss_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
             mb_sws_start (sws);
@@ -348,6 +388,7 @@ int mb_bwss_create (struct mb_ep *ep)
     }
 
     mb_list_init (&self->sws_list);
+    mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
     self->running = 1;
 
@@ -377,6 +418,7 @@ static void mb_bwss_stop (void *p)
         mb_free (sws);
     }
     mb_list_init (&self->sws_list);
+    mb_bwss_free_zombies (self);
     mb_mutex_unlock (&self->lock);
 }
 
@@ -392,5 +434,7 @@ static void mb_bwss_destroy (void *p)
     if (self->ctx)
         SSL_CTX_free (self->ctx);
     mb_mutex_term (&self->lock);
+    mb_list_term (&self->sws_list);
+    mb_list_term (&self->zombies);
     mb_free (self);
 }

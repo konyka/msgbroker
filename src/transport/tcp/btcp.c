@@ -24,12 +24,46 @@
 
 static void mb_btcp_stop (void *p);
 static void mb_btcp_destroy (void *p);
+static void mb_btcp_on_session_error (void *p);
+static void mb_btcp_free_zombies (struct mb_btcp *self);
 
 static const struct mb_ep_ops mb_btcp_ops = {
     mb_btcp_stop,
     mb_btcp_destroy,
     NULL,
 };
+
+static void mb_btcp_free_zombies (struct mb_btcp *self)
+{
+    while (!mb_list_empty (&self->zombies)) {
+        struct mb_list_item *it = mb_list_begin (&self->zombies);
+        struct mb_sipc *sipc = mb_cont (it, struct mb_sipc, item);
+        mb_list_erase (&self->zombies, it);
+        mb_sipc_term (sipc);
+        mb_free (sipc);
+    }
+}
+
+static void mb_btcp_on_session_error (void *p)
+{
+    struct mb_btcp *self = (struct mb_btcp *) p;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    mb_mutex_lock (&self->lock);
+    for (it = mb_list_begin (&self->sipcs); it != mb_list_end (&self->sipcs);
+        it = next) {
+        struct mb_sipc *sipc = mb_cont (it, struct mb_sipc, item);
+        next = mb_list_next (&self->sipcs, it);
+        if (!sipc->disconnected)
+            continue;
+        mb_list_erase (&self->sipcs, it);
+        mb_sipc_stop (sipc);
+        mb_list_insert (&self->zombies, &sipc->item,
+            mb_list_end (&self->zombies));
+    }
+    mb_mutex_unlock (&self->lock);
+}
 
 static void mb_btcp_accept_loop (void *arg)
 {
@@ -38,6 +72,10 @@ static void mb_btcp_accept_loop (void *arg)
     while (self->running) {
         struct pollfd pfd;
         int rc;
+
+        mb_mutex_lock (&self->lock);
+        mb_btcp_free_zombies (self);
+        mb_mutex_unlock (&self->lock);
 
         pfd.fd = self->listen_fd;
         pfd.events = POLLIN;
@@ -70,6 +108,7 @@ static void mb_btcp_accept_loop (void *arg)
             }
 
             mb_sipc_create (sipc, self->ep, client_fd);
+            mb_sipc_set_on_error (sipc, mb_btcp_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
             mb_sipc_start (sipc);
@@ -105,6 +144,7 @@ int mb_btcp_create (struct mb_ep *ep)
     self->ep = ep;
     self->listen_fd = fd;
     mb_list_init (&self->sipcs);
+    mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
     self->running = 1;
 
@@ -126,6 +166,7 @@ static void mb_btcp_cleanup (struct mb_btcp *self)
         mb_sipc_term (sipc);
         mb_free (sipc);
     }
+    mb_btcp_free_zombies (self);
 
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
@@ -156,5 +197,6 @@ static void mb_btcp_destroy (void *p)
 
     mb_mutex_term (&self->lock);
     mb_list_term (&self->sipcs);
+    mb_list_term (&self->zombies);
     mb_free (self);
 }

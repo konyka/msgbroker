@@ -12,6 +12,7 @@ struct mb_bws {
     struct mb_ep *ep;
     int listen_fd;
     struct mb_list sws_list;
+    struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
     int running;

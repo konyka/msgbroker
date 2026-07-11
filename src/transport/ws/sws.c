@@ -503,12 +503,15 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     (size_t) self->payload_len, self->mask_key);
 
             if (self->inlen == MB_WS_OPCODE_PING) {
-                if (self->payload_len > 0)
-                    mb_sws_send_pong (self,
-                        mb_chunkref_data (&self->inmsg.body),
-                        (size_t) self->payload_len);
-                else
-                    mb_sws_send_pong (self, NULL, 0);
+                /* Avoid inserting PONG into a partial binary outbuf. */
+                if (!self->outbuf) {
+                    if (self->payload_len > 0)
+                        mb_sws_send_pong (self,
+                            mb_chunkref_data (&self->inmsg.body),
+                            (size_t) self->payload_len);
+                    else
+                        mb_sws_send_pong (self, NULL, 0);
+                }
             }
 
             mb_msg_term (&self->inmsg);

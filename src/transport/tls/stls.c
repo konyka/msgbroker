@@ -155,6 +155,11 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
     struct mb_stls *self = mb_cont (base, struct mb_stls, pipebase);
     int rc;
 
+    if (!self->ssl) {
+        mb_stls_report_error (self);
+        return -ECONNRESET;
+    }
+
     if (!self->outbuf) {
         size_t body_size = mb_chunkref_size (&msg->body);
 
@@ -194,6 +199,11 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_stls *self = mb_cont (base, struct mb_stls, pipebase);
     int rc;
+
+    if (!self->ssl) {
+        mb_stls_report_error (self);
+        return -ECONNRESET;
+    }
 
     if (self->instate == MB_STLS_INSTATE_HASMSG) {
         mb_msg_mv (msg, &self->inmsg);

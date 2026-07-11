@@ -25,12 +25,46 @@
 
 static void mb_bws_stop (void *p);
 static void mb_bws_destroy (void *p);
+static void mb_bws_on_session_error (void *p);
+static void mb_bws_free_zombies (struct mb_bws *self);
 
 static const struct mb_ep_ops mb_bws_ops = {
     mb_bws_stop,
     mb_bws_destroy,
     NULL,
 };
+
+static void mb_bws_free_zombies (struct mb_bws *self)
+{
+    while (!mb_list_empty (&self->zombies)) {
+        struct mb_list_item *it = mb_list_begin (&self->zombies);
+        struct mb_sws *sws = mb_cont (it, struct mb_sws, item);
+        mb_list_erase (&self->zombies, it);
+        mb_sws_term (sws);
+        mb_free (sws);
+    }
+}
+
+static void mb_bws_on_session_error (void *p)
+{
+    struct mb_bws *self = (struct mb_bws *) p;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    mb_mutex_lock (&self->lock);
+    for (it = mb_list_begin (&self->sws_list);
+        it != mb_list_end (&self->sws_list); it = next) {
+        struct mb_sws *sws = mb_cont (it, struct mb_sws, item);
+        next = mb_list_next (&self->sws_list, it);
+        if (!sws->disconnected)
+            continue;
+        mb_list_erase (&self->sws_list, it);
+        mb_sws_stop (sws);
+        mb_list_insert (&self->zombies, &sws->item,
+            mb_list_end (&self->zombies));
+    }
+    mb_mutex_unlock (&self->lock);
+}
 
 static const char mb_ws_accept_key[] =
     "258EAFA5-E914-47DA-95CA-5AB5F8A5B5E3";
@@ -212,6 +246,10 @@ static void mb_bws_accept_loop (void *arg)
         struct pollfd pfd;
         int rc;
 
+        mb_mutex_lock (&self->lock);
+        mb_bws_free_zombies (self);
+        mb_mutex_unlock (&self->lock);
+
         pfd.fd = self->listen_fd;
         pfd.events = POLLIN;
         rc = poll (&pfd, 1, 100);
@@ -251,6 +289,7 @@ static void mb_bws_accept_loop (void *arg)
             }
 
             mb_sws_create (sws, self->ep, client_fd, 0);
+            mb_sws_set_on_error (sws, mb_bws_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
             mb_sws_start (sws);
@@ -286,6 +325,7 @@ int mb_bws_create (struct mb_ep *ep)
     self->ep = ep;
     self->listen_fd = fd;
     mb_list_init (&self->sws_list);
+    mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
     self->running = 1;
 
@@ -315,6 +355,7 @@ static void mb_bws_stop (void *p)
         mb_free (sws);
     }
     mb_list_init (&self->sws_list);
+    mb_bws_free_zombies (self);
     mb_mutex_unlock (&self->lock);
 }
 
@@ -328,5 +369,7 @@ static void mb_bws_destroy (void *p)
     if (self->listen_fd >= 0)
         close (self->listen_fd);
     mb_mutex_term (&self->lock);
+    mb_list_term (&self->sws_list);
+    mb_list_term (&self->zombies);
     mb_free (self);
 }

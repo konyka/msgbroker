@@ -15,6 +15,7 @@ struct mb_btls {
     int listen_fd;
     SSL_CTX *ctx;
     struct mb_list stlss;
+    struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
     int running;

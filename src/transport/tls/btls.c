@@ -26,12 +26,46 @@
 
 static void mb_btls_stop (void *p);
 static void mb_btls_destroy (void *p);
+static void mb_btls_on_session_error (void *p);
+static void mb_btls_free_zombies (struct mb_btls *self);
 
 static const struct mb_ep_ops mb_btls_ops = {
     mb_btls_stop,
     mb_btls_destroy,
     NULL,
 };
+
+static void mb_btls_free_zombies (struct mb_btls *self)
+{
+    while (!mb_list_empty (&self->zombies)) {
+        struct mb_list_item *it = mb_list_begin (&self->zombies);
+        struct mb_stls *stls = mb_cont (it, struct mb_stls, item);
+        mb_list_erase (&self->zombies, it);
+        mb_stls_term (stls);
+        mb_free (stls);
+    }
+}
+
+static void mb_btls_on_session_error (void *p)
+{
+    struct mb_btls *self = (struct mb_btls *) p;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    mb_mutex_lock (&self->lock);
+    for (it = mb_list_begin (&self->stlss); it != mb_list_end (&self->stlss);
+        it = next) {
+        struct mb_stls *stls = mb_cont (it, struct mb_stls, item);
+        next = mb_list_next (&self->stlss, it);
+        if (!stls->disconnected)
+            continue;
+        mb_list_erase (&self->stlss, it);
+        mb_stls_stop (stls);
+        mb_list_insert (&self->zombies, &stls->item,
+            mb_list_end (&self->zombies));
+    }
+    mb_mutex_unlock (&self->lock);
+}
 
 static void mb_btls_accept_loop (void *arg)
 {
@@ -40,6 +74,10 @@ static void mb_btls_accept_loop (void *arg)
     while (self->running) {
         struct pollfd pfd;
         int rc;
+
+        mb_mutex_lock (&self->lock);
+        mb_btls_free_zombies (self);
+        mb_mutex_unlock (&self->lock);
 
         pfd.fd = self->listen_fd;
         pfd.events = POLLIN;
@@ -90,6 +128,7 @@ static void mb_btls_accept_loop (void *arg)
             }
 
             mb_stls_create (stls, self->ep, ssl);
+            mb_stls_set_on_error (stls, mb_btls_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
             mb_stls_start (stls);
@@ -160,6 +199,7 @@ int mb_btls_create (struct mb_ep *ep)
     }
 
     mb_list_init (&self->stlss);
+    mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
     self->running = 1;
 
@@ -181,6 +221,7 @@ static void mb_btls_cleanup (struct mb_btls *self)
         mb_stls_term (stls);
         mb_free (stls);
     }
+    mb_btls_free_zombies (self);
 
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
@@ -209,5 +250,7 @@ static void mb_btls_destroy (void *p)
 {
     struct mb_btls *self = (struct mb_btls *) p;
     mb_mutex_term (&self->lock);
+    mb_list_term (&self->stlss);
+    mb_list_term (&self->zombies);
     mb_free (self);
 }
