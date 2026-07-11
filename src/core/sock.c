@@ -327,8 +327,16 @@ uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat)
     return 0;
 }
 
-int mb_sock_hold (struct mb_sock *self) { self->holds++; return 0; }
-void mb_sock_rele (struct mb_sock *self) { self->holds--; }
+int mb_sock_hold (struct mb_sock *self)
+{
+    __atomic_add_fetch (&self->holds, 1, __ATOMIC_ACQ_REL);
+    return 0;
+}
+
+void mb_sock_rele (struct mb_sock *self)
+{
+    __atomic_sub_fetch (&self->holds, 1, __ATOMIC_ACQ_REL);
+}
 
 static void mb_sock_handler (struct mb_fsm *fsm, int src, int type,
     void *srcptr)

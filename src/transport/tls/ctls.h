@@ -15,7 +15,7 @@ struct mb_ctls {
     struct mb_ep *ep;
     struct mb_stls *stls;
     struct mb_stls *zombie;   /* stopped session awaiting free */
-    int running;
+    volatile int running;
     int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;

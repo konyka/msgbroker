@@ -15,7 +15,7 @@ struct mb_bipc {
     struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
-    int running;
+    volatile int running;
     char path[108];
 };
 

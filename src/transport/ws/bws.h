@@ -15,7 +15,7 @@ struct mb_bws {
     struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
-    int running;
+    volatile int running;
 };
 
 int mb_bws_create (struct mb_ep *ep);

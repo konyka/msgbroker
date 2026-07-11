@@ -15,7 +15,7 @@ struct mb_btcp {
     struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
-    int running;
+    volatile int running;
 };
 
 int mb_btcp_create (struct mb_ep *ep);

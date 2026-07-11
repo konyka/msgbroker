@@ -34,7 +34,7 @@ struct mb_bwss {
     struct mb_list sws_list;
     struct mb_list zombies;
     struct mb_mutex lock;
-    int running;
+    volatile int running;
     struct mb_thread accept_thread;
 };
 

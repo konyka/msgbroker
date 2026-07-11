@@ -284,20 +284,23 @@ int mb_close (int s)
     }
 
     sock = g_self.socks[s];
-
-    mb_sock_stop (sock);
-    mb_sock_rele (sock);
-    mb_sock_rele (sock);
-    mb_mutex_unlock (&g_self.lock);
-
-    mb_sock_term (sock);
-
-    mb_mutex_lock (&g_self.lock);
+    /* Unpublish first so concurrent hold_socket fails with EBADF. */
     g_self.socks[s] = NULL;
     g_self.unused[MB_MAX_SOCKETS - g_self.nsocks] = (uint16_t) s;
     --g_self.nsocks;
+    mb_mutex_unlock (&g_self.lock);
+
+    /* Drop the two permanent refs, then wait for in-flight send/recv. */
+    mb_sock_rele (sock);
+    mb_sock_rele (sock);
+    while (__atomic_load_n (&sock->holds, __ATOMIC_ACQUIRE) > 0)
+        mb_msleep (1);
+
+    mb_sock_stop (sock);
+    mb_sock_term (sock);
     mb_free (sock);
 
+    mb_mutex_lock (&g_self.lock);
     mb_global_term ();
     mb_mutex_unlock (&g_self.lock);
     return 0;
