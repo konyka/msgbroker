@@ -420,6 +420,8 @@ static void mb_bwss_stop (void *p)
     mb_list_init (&self->sws_list);
     mb_bwss_free_zombies (self);
     mb_mutex_unlock (&self->lock);
+
+    mb_ep_stopped (self->ep);
 }
 
 static void mb_bwss_destroy (void *p)

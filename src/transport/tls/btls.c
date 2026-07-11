@@ -244,11 +244,17 @@ static void mb_btls_stop (void *p)
     mb_mutex_lock (&self->lock);
     mb_btls_cleanup (self);
     mb_mutex_unlock (&self->lock);
+
+    mb_ep_stopped (self->ep);
 }
 
 static void mb_btls_destroy (void *p)
 {
     struct mb_btls *self = (struct mb_btls *) p;
+
+    if (self->running)
+        mb_btls_stop (p);
+
     mb_mutex_term (&self->lock);
     mb_list_term (&self->stlss);
     mb_list_term (&self->zombies);

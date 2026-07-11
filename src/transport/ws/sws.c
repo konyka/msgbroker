@@ -213,6 +213,8 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     self->outbuf = NULL;
     self->outlen = 0;
     self->outpos = 0;
+    self->pending_pong = 0;
+    self->pong_len = 0;
     memset (self->mask_key, 0, 4);
     self->disconnected = 0;
     self->on_error = NULL;
@@ -301,6 +303,11 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     size_t body_len;
     int rc;
 
+    if (self->fd < 0 && !self->ssl) {
+        mb_sws_report_error (self);
+        return -ECONNRESET;
+    }
+
     if (!self->outbuf) {
         uint8_t *payload;
         size_t payload_len;
@@ -343,6 +350,12 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     self->outlen = 0;
     self->outpos = 0;
 
+    if (self->pending_pong) {
+        mb_sws_send_pong (self, self->pong_buf, (size_t) self->pong_len);
+        self->pending_pong = 0;
+        self->pong_len = 0;
+    }
+
     mb_msg_term (msg);
     mb_msg_init (msg, 0);
     return 0;
@@ -351,6 +364,11 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+
+    if (self->fd < 0 && !self->ssl) {
+        mb_sws_report_error (self);
+        return -ECONNRESET;
+    }
 
     for (;;) {
         if (self->instate == MB_SWS_INSTATE_HDR) {
@@ -442,6 +460,13 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 }
 
                 if (opcode == MB_WS_OPCODE_CLOSE) {
+                    if (self->outbuf) {
+                        mb_free (self->outbuf);
+                        self->outbuf = NULL;
+                        self->outlen = 0;
+                        self->outpos = 0;
+                    }
+                    self->pending_pong = 0;
                     mb_sws_send_frame (self, MB_WS_OPCODE_CLOSE, NULL, 0);
                     mb_sws_report_error (self);
                     return -ECONNRESET;
@@ -503,14 +528,20 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     (size_t) self->payload_len, self->mask_key);
 
             if (self->inlen == MB_WS_OPCODE_PING) {
-                /* Avoid inserting PONG into a partial binary outbuf. */
-                if (!self->outbuf) {
-                    if (self->payload_len > 0)
-                        mb_sws_send_pong (self,
+                if (self->outbuf) {
+                    /* Defer PONG until binary outbuf finishes. */
+                    self->pong_len = self->payload_len;
+                    if (self->pong_len > 0)
+                        memcpy (self->pong_buf,
                             mb_chunkref_data (&self->inmsg.body),
-                            (size_t) self->payload_len);
-                    else
-                        mb_sws_send_pong (self, NULL, 0);
+                            (size_t) self->pong_len);
+                    self->pending_pong = 1;
+                } else if (self->payload_len > 0) {
+                    mb_sws_send_pong (self,
+                        mb_chunkref_data (&self->inmsg.body),
+                        (size_t) self->payload_len);
+                } else {
+                    mb_sws_send_pong (self, NULL, 0);
                 }
             }
 
@@ -519,6 +550,12 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
             self->instate = MB_SWS_INSTATE_HDR;
             self->inpos = 0;
             self->payload_len = 0;
+            if (self->pending_pong && !self->outbuf) {
+                mb_sws_send_pong (self, self->pong_buf,
+                    (size_t) self->pong_len);
+                self->pending_pong = 0;
+                self->pong_len = 0;
+            }
             continue;
         }
 

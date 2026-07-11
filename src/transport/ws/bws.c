@@ -357,6 +357,8 @@ static void mb_bws_stop (void *p)
     mb_list_init (&self->sws_list);
     mb_bws_free_zombies (self);
     mb_mutex_unlock (&self->lock);
+
+    mb_ep_stopped (self->ep);
 }
 
 static void mb_bws_destroy (void *p)

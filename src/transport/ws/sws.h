@@ -26,6 +26,9 @@ struct mb_sws {
     uint8_t *outbuf;
     size_t outlen;
     size_t outpos;
+    int pending_pong;
+    int pong_len;
+    uint8_t pong_buf[125];
     struct ssl_st *ssl;
     int disconnected;
     void (*on_error) (void *arg);
