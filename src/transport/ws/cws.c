@@ -271,9 +271,20 @@ int mb_cws_create (struct mb_ep *ep)
         return 0;
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        int tries;
+        int started = 0;
+
         self->reconnecting = 1;
-        if (mb_thread_start (&self->reconnect_thread,
-                mb_cws_reconnect_loop, self) != 0) {
+        for (tries = 0; tries < 5; tries++) {
+            if (mb_thread_start (&self->reconnect_thread,
+                    mb_cws_reconnect_loop, self) == 0) {
+                started = 1;
+                break;
+            }
+            mb_msleep (1 << tries);
+            mb_thread_init (&self->reconnect_thread);
+        }
+        if (!started) {
             self->reconnecting = 0;
             mb_mutex_term (&self->lock);
             mb_free (self);

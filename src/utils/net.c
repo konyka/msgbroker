@@ -12,6 +12,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/un.h>
 
 int mb_net_parse_addr (const char *addr, char *host, size_t hostlen,
     uint16_t *port)
@@ -157,6 +158,86 @@ connected:
 
     freeaddrinfo (result);
     return -ECONNREFUSED;
+}
+
+int mb_net_unix_connect_while (const char *path, volatile int *running,
+    int timeout_ms)
+{
+    struct sockaddr_un sa;
+    int fd;
+    int rc;
+    int budget;
+
+    if (!path || !path[0])
+        return -EINVAL;
+    if (timeout_ms <= 0)
+        timeout_ms = 5000;
+
+    if (running && !*running)
+        return -ECANCELED;
+
+    fd = socket (AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -errno;
+
+    memset (&sa, 0, sizeof (sa));
+    sa.sun_family = AF_UNIX;
+    if (strlen (path) >= sizeof (sa.sun_path)) {
+        close (fd);
+        return -ENAMETOOLONG;
+    }
+    memcpy (sa.sun_path, path, strlen (path) + 1);
+
+    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+
+    rc = connect (fd, (struct sockaddr *) &sa, sizeof (sa));
+    if (rc == 0)
+        return fd;
+    if (errno != EINPROGRESS) {
+        int err = -errno;
+        close (fd);
+        return err;
+    }
+
+    budget = timeout_ms;
+    while (budget > 0) {
+        struct pollfd pfd;
+        int slice = budget > 50 ? 50 : budget;
+        int soerr = 0;
+        socklen_t solen = sizeof (soerr);
+
+        if (running && !*running) {
+            close (fd);
+            return -ECANCELED;
+        }
+
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            close (fd);
+            return -errno;
+        }
+        if (rc == 0) {
+            budget -= slice;
+            continue;
+        }
+
+        if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &soerr, &solen) < 0) {
+            close (fd);
+            return -errno;
+        }
+        if (soerr != 0) {
+            close (fd);
+            return -soerr;
+        }
+        return fd;
+    }
+
+    close (fd);
+    return -ETIMEDOUT;
 }
 
 int mb_net_bind (const char *host, uint16_t port, int backlog)

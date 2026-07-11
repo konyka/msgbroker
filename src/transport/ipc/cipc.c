@@ -4,18 +4,14 @@
 #include "../../core/sock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
+#include "../../utils/net.h"
 #include "../../pal/sleep.h"
 
 #include <msgbroker/mb.h>
 
 #include <string.h>
-#include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <fcntl.h>
-#include <poll.h>
 
 static void mb_cipc_stop (void *p);
 static void mb_cipc_destroy (void *p);
@@ -63,12 +59,13 @@ static void mb_cipc_reconnect_loop (void *arg)
     mb_mutex_unlock (&self->lock);
 
     while (self->running) {
-        struct sockaddr_un sa;
         int fd;
         struct mb_sipc *sipc;
 
-        fd = socket (AF_UNIX, SOCK_STREAM, 0);
+        fd = mb_net_unix_connect_while (self->path, &self->running, 5000);
         if (fd < 0) {
+            if (fd == -ECANCELED)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -76,22 +73,6 @@ static void mb_cipc_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
-
-        memset (&sa, 0, sizeof (sa));
-        sa.sun_family = AF_UNIX;
-        snprintf (sa.sun_path, sizeof (sa.sun_path), "%s", self->path);
-
-        if (connect (fd, (struct sockaddr *) &sa, sizeof (sa)) < 0) {
-            close (fd);
-            mb_msleep_while (&self->running, current_ivl);
-            if (ivl_max > 0 && current_ivl < ivl_max)
-                current_ivl *= 2;
-            if (current_ivl > ivl_max && ivl_max > 0)
-                current_ivl = ivl_max;
-            continue;
-        }
-
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
         if (!sipc) {
@@ -132,23 +113,11 @@ static void mb_cipc_reconnect_loop (void *arg)
 
 static int mb_cipc_do_connect (struct mb_cipc *self)
 {
-    struct sockaddr_un sa;
     int fd;
 
-    fd = socket (AF_UNIX, SOCK_STREAM, 0);
+    fd = mb_net_unix_connect_while (self->path, &self->running, 5000);
     if (fd < 0)
-        return -errno;
-
-    memset (&sa, 0, sizeof (sa));
-    sa.sun_family = AF_UNIX;
-    snprintf (sa.sun_path, sizeof (sa.sun_path), "%s", self->path);
-
-    if (connect (fd, (struct sockaddr *) &sa, sizeof (sa)) < 0) {
-        close (fd);
-        return -errno;
-    }
-
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+        return fd;
 
     self->sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
     if (!self->sipc) {
@@ -193,9 +162,20 @@ int mb_cipc_create (struct mb_ep *ep)
         return 0;
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+        int tries;
+        int started = 0;
+
         self->reconnecting = 1;
-        if (mb_thread_start (&self->reconnect_thread,
-                mb_cipc_reconnect_loop, self) != 0) {
+        for (tries = 0; tries < 5; tries++) {
+            if (mb_thread_start (&self->reconnect_thread,
+                    mb_cipc_reconnect_loop, self) == 0) {
+                started = 1;
+                break;
+            }
+            mb_msleep (1 << tries);
+            mb_thread_init (&self->reconnect_thread);
+        }
+        if (!started) {
             self->reconnecting = 0;
             mb_mutex_term (&self->lock);
             mb_free (self);
