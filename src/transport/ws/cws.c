@@ -23,6 +23,10 @@
 #include <poll.h>
 #include <time.h>
 
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 static void mb_cws_stop (void *p);
 static void mb_cws_destroy (void *p);
 static void mb_cws_on_disconnect (void *p);
@@ -51,7 +55,37 @@ static size_t mb_cws_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_cws_do_handshake (int fd, const char *host, uint16_t port)
+static int mb_cws_io_wait (int fd, short events, volatile int *running,
+    int *budget)
+{
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = events;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
+    volatile int *running, int timeout_ms)
 {
     uint8_t key_bytes[16];
     char key_b64[32];
@@ -60,6 +94,7 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port)
     int i;
     size_t pos;
     char *accept_val;
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
 
     srand ((unsigned int) time (NULL) ^ (unsigned int) fd);
     for (i = 0; i < 16; ++i)
@@ -76,32 +111,52 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port)
         "\r\n", host, port, key_b64);
 
     {
-        const char *p = req;
+        const char *wp = req;
         size_t remaining = strlen (req);
         while (remaining > 0) {
-            ssize_t ns = send (fd, p, remaining, MSG_NOSIGNAL);
-            if (ns <= 0)
+            ssize_t ns;
+
+            if (running && !*running)
+                return -ECANCELED;
+
+            ns = send (fd, wp, remaining, MSG_NOSIGNAL);
+            if (ns < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    if (mb_cws_io_wait (fd, POLLOUT, running, &budget) < 0)
+                        return -1;
+                    continue;
+                }
                 return -1;
-            p += ns;
+            }
+            if (ns == 0)
+                return -1;
+            wp += ns;
             remaining -= (size_t) ns;
         }
     }
 
     pos = 0;
     while (pos < sizeof (resp) - 1) {
-        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
-        int rc = poll (&pfd, 1, 5000);
-        if (rc <= 0)
+        ssize_t nr;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        nr = recv (fd, resp + pos, 1, 0);
+        if (nr < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (mb_cws_io_wait (fd, POLLIN, running, &budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        {
-            ssize_t nr = recv (fd, resp + pos, 1, 0);
-            if (nr <= 0)
-                return -1;
-            pos += (size_t) nr;
-            resp[pos] = '\0';
-            if (pos >= 4 && memcmp (resp + pos - 4, "\r\n\r\n", 4) == 0)
-                break;
         }
+        if (nr == 0)
+            return -1;
+        pos += (size_t) nr;
+        resp[pos] = '\0';
+        if (pos >= 4 && memcmp (resp + pos - 4, "\r\n\r\n", 4) == 0)
+            break;
     }
 
     if (memcmp (resp, "HTTP/1.1 101", 12) != 0 &&
@@ -152,10 +207,11 @@ static void mb_cws_reconnect_loop (void *arg)
             continue;
         }
 
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-        if (mb_cws_do_handshake (fd, self->host, self->port) < 0) {
+        if (mb_cws_do_handshake (fd, self->host, self->port,
+                &self->running, 5000) < 0) {
             close (fd);
+            if (!self->running)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -163,8 +219,6 @@ static void mb_cws_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
-
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
         if (!sws) {
@@ -213,15 +267,12 @@ static int mb_cws_do_connect (struct mb_cws *self)
     if (fd < 0)
         return fd;
 
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-    rc = mb_cws_do_handshake (fd, self->host, self->port);
+    rc = mb_cws_do_handshake (fd, self->host, self->port,
+        &self->running, 5000);
     if (rc < 0) {
         close (fd);
-        return -ECONNREFUSED;
+        return self->running ? -ECONNREFUSED : -ECANCELED;
     }
-
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
     self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
     if (!self->sws) {

@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-63 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-64 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -993,6 +993,18 @@ li { margin: 5px 0; }
 <li>[x] <b>mb_net_unix_connect_while</b>: nonblocking AF_UNIX connect + polled wait, abort when <code>running</code> clears</li>
 <li>[x] <b>cipc</b>: reconnect/initial connect use <code>unix_connect_while</code></li>
 <li>[x] <b>cipc/ctcp/ctls/cws/cwss</b>: create-path <code>mb_thread_start</code> retries up to 5 times (aligned with disconnect)</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 64 — Interruptible TLS/WS Handshake &amp; Pair Events</h2>
+<span class="status done">DONE</span>
+<p>Stop/join must not block on SSL_connect or WebSocket HTTP upgrade; PAIR must not advertise readable when no pipe exists.</p>
+<ul>
+<li>[x] <b>ctls/cwss</b>: nonblocking <code>SSL_connect</code> with 50ms poll slices, abort when <code>running</code> clears</li>
+<li>[x] <b>cws/cwss</b>: interruptible WS handshake send/recv (WANT_READ/WRITE / EAGAIN)</li>
+<li>[x] <b>pair</b>: <code>events()</code> only sets IN/OUT when a pipe is present</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

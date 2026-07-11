@@ -27,11 +27,44 @@ static const struct mb_ep_ops mb_ctls_ops = {
     mb_ctls_on_disconnect,
 };
 
-static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd)
+static int mb_ctls_ssl_wait (SSL *ssl, int want, volatile int *running,
+    int *budget)
+{
+    int fd = SSL_get_fd (ssl);
+
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = (want == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -errno;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -ETIMEDOUT;
+}
+
+static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
+    volatile int *running, int timeout_ms)
 {
     struct mb_sock *sock;
     SSL_CTX *ctx;
     SSL *ssl;
+    int budget;
 
     ctx = SSL_CTX_new (TLS_client_method ());
     if (!ctx)
@@ -56,12 +89,32 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd)
     SSL_set_fd (ssl, fd);
     SSL_set_connect_state (ssl);
 
-    if (SSL_connect (ssl) <= 0) {
+    budget = timeout_ms > 0 ? timeout_ms : 5000;
+    for (;;) {
+        int rc;
+        int err;
+
+        if (running && !*running) {
+            SSL_free (ssl);
+            return NULL;
+        }
+
+        rc = SSL_connect (ssl);
+        if (rc == 1)
+            return ssl;
+
+        err = SSL_get_error (ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (mb_ctls_ssl_wait (ssl, err, running, &budget) < 0) {
+                SSL_free (ssl);
+                return NULL;
+            }
+            continue;
+        }
+
         SSL_free (ssl);
         return NULL;
     }
-
-    return ssl;
 }
 
 static void mb_ctls_free_zombie (struct mb_ctls *self)
@@ -102,12 +155,11 @@ static void mb_ctls_reconnect_loop (void *arg)
             continue;
         }
 
-        /* Handshake needs a blocking socket; restore nonblock after. */
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-        ssl = mb_ctls_do_ssl_connect (self, fd);
+        ssl = mb_ctls_do_ssl_connect (self, fd, &self->running, 5000);
         if (!ssl) {
             close (fd);
+            if (!self->running)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -115,8 +167,6 @@ static void mb_ctls_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
-
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
         if (!stls) {
@@ -166,15 +216,11 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
     if (fd < 0)
         return fd;
 
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-    ssl = mb_ctls_do_ssl_connect (self, fd);
+    ssl = mb_ctls_do_ssl_connect (self, fd, &self->running, 5000);
     if (!ssl) {
         close (fd);
-        return -ECONNREFUSED;
+        return self->running ? -ECONNREFUSED : -ECANCELED;
     }
-
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
     self->stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
     if (!self->stls) {

@@ -67,45 +67,108 @@ static size_t mb_cwss_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_cwss_ssl_write_all (SSL *ssl, const void *data, size_t len)
+static int mb_cwss_ssl_wait (SSL *ssl, int want, volatile int *running,
+    int *budget)
+{
+    int fd = SSL_get_fd (ssl);
+
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = (want == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -errno;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -ETIMEDOUT;
+}
+
+static int mb_cwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
+    volatile int *running, int *budget)
 {
     const uint8_t *ptr = (const uint8_t *) data;
     size_t sent = 0;
+
     while (sent < len) {
-        int ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
-        if (ns <= 0)
+        int ns;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
+        if (ns > 0) {
+            sent += (size_t) ns;
+            continue;
+        }
+        {
+            int err = SSL_get_error (ssl, ns);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                if (mb_cwss_ssl_wait (ssl, err, running, budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        sent += (size_t) ns;
+        }
     }
     return 0;
 }
 
 static int mb_cwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
-    int timeout_ms)
+    volatile int *running, int *budget)
 {
     size_t pos = 0;
-    (void) timeout_ms;
+
     while (pos < buflen - 1) {
         int nr;
 
+        if (running && !*running)
+            return -ECANCELED;
+
         nr = SSL_read (ssl, buf + pos, 1);
-        if (nr <= 0)
+        if (nr > 0) {
+            pos += (size_t) nr;
+            buf[pos] = '\0';
+            if (pos >= 4 && memcmp (buf + pos - 4, "\r\n\r\n", 4) == 0)
+                break;
+            continue;
+        }
+        {
+            int err = SSL_get_error (ssl, nr);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                if (mb_cwss_ssl_wait (ssl, err, running, budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        pos += (size_t) nr;
-        buf[pos] = '\0';
-        if (pos >= 4 && memcmp (buf + pos - 4, "\r\n\r\n", 4) == 0)
-            break;
+        }
     }
     return 0;
 }
 
-static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port)
+static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
+    volatile int *running, int timeout_ms)
 {
     uint8_t key_bytes[16];
     char key_b64[32];
     char req[512];
     char resp[4096];
     int i;
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
 
     srand ((unsigned int) time (NULL) ^ (unsigned int) SSL_get_fd (ssl));
     for (i = 0; i < 16; ++i)
@@ -121,10 +184,10 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port)
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n", host, port, key_b64);
 
-    if (mb_cwss_ssl_write_all (ssl, req, strlen (req)) < 0)
+    if (mb_cwss_ssl_write_all (ssl, req, strlen (req), running, &budget) < 0)
         return -1;
 
-    if (mb_cwss_ssl_read_http (ssl, resp, sizeof (resp), 5000) < 0)
+    if (mb_cwss_ssl_read_http (ssl, resp, sizeof (resp), running, &budget) < 0)
         return -1;
 
     if (memcmp (resp, "HTTP/1.1 101", 12) != 0 &&
@@ -134,11 +197,13 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port)
     return 0;
 }
 
-static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd)
+static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd,
+    volatile int *running, int timeout_ms)
 {
     struct mb_sock *sock;
     SSL_CTX *ctx;
     SSL *ssl;
+    int budget;
 
     ctx = SSL_CTX_new (TLS_client_method ());
     if (!ctx)
@@ -163,12 +228,32 @@ static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd)
     SSL_set_fd (ssl, fd);
     SSL_set_connect_state (ssl);
 
-    if (SSL_connect (ssl) <= 0) {
+    budget = timeout_ms > 0 ? timeout_ms : 5000;
+    for (;;) {
+        int rc;
+        int err;
+
+        if (running && !*running) {
+            SSL_free (ssl);
+            return NULL;
+        }
+
+        rc = SSL_connect (ssl);
+        if (rc == 1)
+            return ssl;
+
+        err = SSL_get_error (ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (mb_cwss_ssl_wait (ssl, err, running, &budget) < 0) {
+                SSL_free (ssl);
+                return NULL;
+            }
+            continue;
+        }
+
         SSL_free (ssl);
         return NULL;
     }
-
-    return ssl;
 }
 
 static void mb_cwss_free_zombie (struct mb_cwss *self)
@@ -209,11 +294,11 @@ static void mb_cwss_reconnect_loop (void *arg)
             continue;
         }
 
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-        ssl = mb_cwss_do_tls_connect (self, fd);
+        ssl = mb_cwss_do_tls_connect (self, fd, &self->running, 5000);
         if (!ssl) {
             close (fd);
+            if (!self->running)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -222,9 +307,12 @@ static void mb_cwss_reconnect_loop (void *arg)
             continue;
         }
 
-        if (mb_cwss_do_handshake (ssl, self->host, self->port) < 0) {
+        if (mb_cwss_do_handshake (ssl, self->host, self->port,
+                &self->running, 5000) < 0) {
             SSL_free (ssl);
             close (fd);
+            if (!self->running)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -232,8 +320,6 @@ static void mb_cwss_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
-
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
         if (!sws) {
@@ -285,22 +371,19 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     if (fd < 0)
         return fd;
 
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
-
-    ssl = mb_cwss_do_tls_connect (self, fd);
+    ssl = mb_cwss_do_tls_connect (self, fd, &self->running, 5000);
     if (!ssl) {
         close (fd);
-        return -ECONNREFUSED;
+        return self->running ? -ECONNREFUSED : -ECANCELED;
     }
 
-    rc = mb_cwss_do_handshake (ssl, self->host, self->port);
+    rc = mb_cwss_do_handshake (ssl, self->host, self->port,
+        &self->running, 5000);
     if (rc < 0) {
         SSL_free (ssl);
         close (fd);
-        return -ECONNREFUSED;
+        return self->running ? -ECONNREFUSED : -ECANCELED;
     }
-
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
     self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
     if (!self->sws) {
