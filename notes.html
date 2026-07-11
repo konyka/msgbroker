@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-60 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-61 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -956,6 +956,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sws</b>: <code>pending_pong</code> queue; CLOSE clears partial <code>outbuf</code>; fd/ssl null guards on send/recv</li>
 <li>[x] <b>btls/bws/bwss</b>: call <code>mb_ep_stopped</code> on stop; <code>btls_destroy</code> stops if still running</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 61 — PONG Retry &amp; Reconnect Thread Spawn Retry</h2>
+<span class="status done">DONE</span>
+<p>Keep deferred PONG across <code>-EAGAIN</code>; retry <code>mb_thread_start</code> a few times on mid-stream disconnect so a transient spawn failure does not permanently disable reconnect.</p>
+<ul>
+<li>[x] <b>sws</b>: <code>mb_sws_flush_pending_pong</code> retains pending on EAGAIN</li>
+<li>[x] <b>cipc/ctcp/ctls/cws/cwss</b>: up to 5 spawn retries with short backoff on disconnect</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

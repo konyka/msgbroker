@@ -296,6 +296,27 @@ void mb_sws_stop (struct mb_sws *self)
     }
 }
 
+static int mb_sws_flush_pending_pong (struct mb_sws *self)
+{
+    int rc;
+
+    if (!self->pending_pong)
+        return 0;
+
+    rc = mb_sws_send_pong (self, self->pong_buf, (size_t) self->pong_len);
+    if (rc < 0) {
+        if (rc == -EAGAIN)
+            return -EAGAIN;
+        self->pending_pong = 0;
+        self->pong_len = 0;
+        mb_sws_report_error (self);
+        return rc;
+    }
+    self->pending_pong = 0;
+    self->pong_len = 0;
+    return 0;
+}
+
 static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
@@ -306,6 +327,12 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     if (self->fd < 0 && !self->ssl) {
         mb_sws_report_error (self);
         return -ECONNRESET;
+    }
+
+    if (!self->outbuf && self->pending_pong) {
+        rc = mb_sws_flush_pending_pong (self);
+        if (rc < 0 && rc != -EAGAIN)
+            return rc;
     }
 
     if (!self->outbuf) {
@@ -350,11 +377,7 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     self->outlen = 0;
     self->outpos = 0;
 
-    if (self->pending_pong) {
-        mb_sws_send_pong (self, self->pong_buf, (size_t) self->pong_len);
-        self->pending_pong = 0;
-        self->pong_len = 0;
-    }
+    (void) mb_sws_flush_pending_pong (self);
 
     mb_msg_term (msg);
     mb_msg_init (msg, 0);
@@ -369,6 +392,9 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_sws_report_error (self);
         return -ECONNRESET;
     }
+
+    if (!self->outbuf)
+        (void) mb_sws_flush_pending_pong (self);
 
     for (;;) {
         if (self->instate == MB_SWS_INSTATE_HDR) {
@@ -550,12 +576,8 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
             self->instate = MB_SWS_INSTATE_HDR;
             self->inpos = 0;
             self->payload_len = 0;
-            if (self->pending_pong && !self->outbuf) {
-                mb_sws_send_pong (self, self->pong_buf,
-                    (size_t) self->pong_len);
-                self->pending_pong = 0;
-                self->pong_len = 0;
-            }
+            if (self->pending_pong && !self->outbuf)
+                (void) mb_sws_flush_pending_pong (self);
             continue;
         }
 

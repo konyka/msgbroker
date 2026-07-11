@@ -224,11 +224,23 @@ static void mb_cipc_on_disconnect (void *p)
     if (start_reconnect) {
         mb_thread_term (&self->reconnect_thread);
         mb_thread_init (&self->reconnect_thread);
-        if (mb_thread_start (&self->reconnect_thread,
-                mb_cipc_reconnect_loop, self) != 0) {
-            mb_mutex_lock (&self->lock);
-            self->reconnecting = 0;
-            mb_mutex_unlock (&self->lock);
+        {
+            int tries;
+            int started = 0;
+            for (tries = 0; tries < 5; tries++) {
+                if (mb_thread_start (&self->reconnect_thread,
+                        mb_cipc_reconnect_loop, self) == 0) {
+                    started = 1;
+                    break;
+                }
+                mb_msleep (1 << tries);
+                mb_thread_init (&self->reconnect_thread);
+            }
+            if (!started) {
+                mb_mutex_lock (&self->lock);
+                self->reconnecting = 0;
+                mb_mutex_unlock (&self->lock);
+            }
         }
     }
 }
