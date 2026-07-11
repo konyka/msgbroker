@@ -241,6 +241,8 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
 
     if (self->socktype->flags & MB_SOCKTYPE_FLAG_NOSEND)
         return -EOPNOTSUPP;
+    if (!self->sockbase)
+        return -EBADF;
 
     mb_ctx_enter (&self->ctx);
     rc = self->sockbase->vfptr->send (self->sockbase, msg);
@@ -258,6 +260,8 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
 
     if (self->socktype->flags & MB_SOCKTYPE_FLAG_NORECV)
         return -EOPNOTSUPP;
+    if (!self->sockbase)
+        return -EBADF;
 
     mb_ctx_enter (&self->ctx);
     rc = self->sockbase->vfptr->recv (self->sockbase, msg);
@@ -351,11 +355,12 @@ static void mb_sock_handler (struct mb_fsm *fsm, int src, int type,
         if (!mb_list_empty (&self->eps) || !mb_list_empty (&self->sdeps))
             break;
         self->state = MB_SOCK_STATE_STOPPING;
-        if (self->sockbase->vfptr->stop)
+        if (self->sockbase && self->sockbase->vfptr->stop)
             self->sockbase->vfptr->stop (self->sockbase);
         break;
     case MB_SOCK_STATE_STOPPING:
-        self->sockbase->vfptr->destroy (self->sockbase);
+        if (self->sockbase)
+            self->sockbase->vfptr->destroy (self->sockbase);
         self->sockbase = NULL;
         self->state = MB_SOCK_STATE_INIT;
         mb_sock_stopped (self);

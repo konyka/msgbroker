@@ -462,6 +462,11 @@ int mb_shutdown (int s, int how)
         return -1;
     }
 
+    /* holds = 2 permanent + this call's hold. Wait for other in-flight
+     * send/recv before tearing down endpoints/sockbase. */
+    while (__atomic_load_n (&sock->holds, __ATOMIC_ACQUIRE) > 3)
+        mb_msleep (1);
+
     mb_sock_stop (sock);
     mb_global_rele_socket (sock);
     return 0;
