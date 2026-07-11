@@ -143,6 +143,8 @@ static void mb_btls_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
+        if (!self->running || self->listen_fd < 0)
+            continue;
 
         if (pfd.revents & POLLIN) {
             struct sockaddr_storage client;
@@ -315,6 +317,10 @@ static void mb_btls_stop (void *p)
     struct mb_btls *self = (struct mb_btls *) p;
 
     self->running = 0;
+    if (self->listen_fd >= 0) {
+        close (self->listen_fd);
+        self->listen_fd = -1;
+    }
     mb_thread_term (&self->accept_thread);
 
     mb_mutex_lock (&self->lock);

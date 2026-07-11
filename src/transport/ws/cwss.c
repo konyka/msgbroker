@@ -492,14 +492,22 @@ static void mb_cwss_on_disconnect (void *p)
         {
             int tries;
             int started = 0;
-            for (tries = 0; tries < 5; tries++) {
-                if (mb_thread_start (&self->reconnect_thread,
-                        mb_cwss_reconnect_loop, self) == 0) {
-                    started = 1;
-                    break;
+            int batches = 0;
+
+            while (!started && self->running && batches < 200) {
+                for (tries = 0; tries < 5; tries++) {
+                    if (mb_thread_start (&self->reconnect_thread,
+                            mb_cwss_reconnect_loop, self) == 0) {
+                        started = 1;
+                        break;
+                    }
+                    mb_msleep (1 << tries);
+                    mb_thread_init (&self->reconnect_thread);
                 }
-                mb_msleep (1 << tries);
-                mb_thread_init (&self->reconnect_thread);
+                if (!started) {
+                    mb_msleep_while (&self->running, 50);
+                    batches++;
+                }
             }
             if (!started) {
                 mb_mutex_lock (&self->lock);

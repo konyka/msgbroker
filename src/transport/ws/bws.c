@@ -312,6 +312,8 @@ static void mb_bws_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
+        if (!self->running || self->listen_fd < 0)
+            continue;
 
         if (pfd.revents & POLLIN) {
             struct sockaddr_storage client;
@@ -414,6 +416,10 @@ static void mb_bws_stop (void *p)
     struct mb_list_item *next;
 
     self->running = 0;
+    if (self->listen_fd >= 0) {
+        close (self->listen_fd);
+        self->listen_fd = -1;
+    }
     mb_thread_term (&self->accept_thread);
 
     mb_mutex_lock (&self->lock);
@@ -427,11 +433,6 @@ static void mb_bws_stop (void *p)
     mb_list_init (&self->sws_list);
     mb_bws_free_zombies (self);
     mb_mutex_unlock (&self->lock);
-
-    if (self->listen_fd >= 0) {
-        close (self->listen_fd);
-        self->listen_fd = -1;
-    }
 
     mb_ep_stopped (self->ep);
 }

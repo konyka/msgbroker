@@ -97,6 +97,8 @@ static void mb_bipc_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
+        if (!self->running || self->listen_fd < 0)
+            continue;
 
         if (pfd.revents & POLLIN) {
             struct sockaddr_un client;
@@ -206,6 +208,11 @@ static void mb_bipc_stop (void *p)
     struct mb_bipc *self = (struct mb_bipc *) p;
 
     self->running = 0;
+    if (self->listen_fd >= 0) {
+        close (self->listen_fd);
+        self->listen_fd = -1;
+        unlink (self->path);
+    }
     mb_thread_term (&self->accept_thread);
 
     mb_mutex_lock (&self->lock);
@@ -219,12 +226,6 @@ static void mb_bipc_stop (void *p)
     }
     mb_bipc_free_zombies (self);
     mb_mutex_unlock (&self->lock);
-
-    if (self->listen_fd >= 0) {
-        close (self->listen_fd);
-        self->listen_fd = -1;
-        unlink (self->path);
-    }
 
     mb_ep_stopped (self->ep);
 }

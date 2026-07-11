@@ -361,6 +361,8 @@ static void mb_bwss_accept_loop (void *arg)
         rc = poll (&pfd, 1, 100);
         if (rc <= 0)
             continue;
+        if (!self->running || self->listen_fd < 0)
+            continue;
 
         if (pfd.revents & POLLIN) {
             struct sockaddr_storage client;
@@ -489,7 +491,20 @@ int mb_bwss_create (struct mb_ep *ep)
     mb_ep_tran_setup (ep, &mb_bwss_ops, self);
 
     mb_thread_init (&self->accept_thread);
-    mb_thread_start (&self->accept_thread, mb_bwss_accept_loop, self);
+    if (mb_thread_start (&self->accept_thread, mb_bwss_accept_loop, self) != 0) {
+        self->running = 0;
+        if (self->ctx) {
+            SSL_CTX_free (self->ctx);
+            self->ctx = NULL;
+        }
+        close (self->listen_fd);
+        self->listen_fd = -1;
+        mb_mutex_term (&self->lock);
+        mb_list_term (&self->sws_list);
+        mb_list_term (&self->zombies);
+        mb_free (self);
+        return -EAGAIN;
+    }
 
     return 0;
 }
@@ -501,6 +516,10 @@ static void mb_bwss_stop (void *p)
     struct mb_list_item *next;
 
     self->running = 0;
+    if (self->listen_fd >= 0) {
+        close (self->listen_fd);
+        self->listen_fd = -1;
+    }
     mb_thread_term (&self->accept_thread);
 
     mb_mutex_lock (&self->lock);
@@ -514,11 +533,6 @@ static void mb_bwss_stop (void *p)
     mb_list_init (&self->sws_list);
     mb_bwss_free_zombies (self);
     mb_mutex_unlock (&self->lock);
-
-    if (self->listen_fd >= 0) {
-        close (self->listen_fd);
-        self->listen_fd = -1;
-    }
 
     mb_ep_stopped (self->ep);
 }
