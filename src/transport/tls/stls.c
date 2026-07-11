@@ -125,9 +125,9 @@ void mb_stls_term (struct mb_stls *self)
     }
 }
 
-void mb_stls_start (struct mb_stls *self)
+int mb_stls_start (struct mb_stls *self)
 {
-    mb_pipebase_start (&self->pipebase);
+    return mb_pipebase_start (&self->pipebase);
 }
 
 void mb_stls_stop (struct mb_stls *self)

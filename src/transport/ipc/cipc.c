@@ -112,7 +112,14 @@ static void mb_cipc_reconnect_loop (void *arg)
         }
         self->sipc = sipc;
         mb_sipc_set_on_error (sipc, mb_cipc_on_disconnect, self);
-        mb_sipc_start (sipc);
+        if (mb_sipc_start (sipc) < 0) {
+            self->sipc = NULL;
+            mb_sipc_term (sipc);
+            mb_free (sipc);
+            mb_mutex_unlock (&self->lock);
+            mb_msleep_while (&self->running, current_ivl);
+            continue;
+        }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
@@ -151,7 +158,12 @@ static int mb_cipc_do_connect (struct mb_cipc *self)
 
     mb_sipc_create (self->sipc, self->ep, fd);
     mb_sipc_set_on_error (self->sipc, mb_cipc_on_disconnect, self);
-    mb_sipc_start (self->sipc);
+    if (mb_sipc_start (self->sipc) < 0) {
+        mb_sipc_term (self->sipc);
+        mb_free (self->sipc);
+        self->sipc = NULL;
+        return -ECONNREFUSED;
+    }
     return 0;
 }
 

@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-61 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-62 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -967,6 +967,20 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sws</b>: <code>mb_sws_flush_pending_pong</code> retains pending on EAGAIN</li>
 <li>[x] <b>cipc/ctcp/ctls/cws/cwss</b>: up to 5 spawn retries with short backoff on disconnect</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 62 — Interruptible Connect &amp; Session Start Checks</h2>
+<span class="status done">DONE</span>
+<p>Stop/join must not wait on a blocking TCP connect; pipe registration failures must not leave a live TCP with no usable pipe; instant PONG must survive EAGAIN.</p>
+<ul>
+<li>[x] <b>mb_net_connect_while</b>: nonblocking connect + polled wait, abort when <code>running</code> clears</li>
+<li>[x] <b>ctcp/ctls/cws/cwss</b>: reconnect/initial connect use <code>connect_while</code></li>
+<li>[x] <b>ctls/cws/cwss</b>: clear <code>O_NONBLOCK</code> for TLS/WS handshake, restore after (avoids SIGPIPE)</li>
+<li>[x] <b>sipc/stls/sws_start</b>: return <code>pipebase_start</code> status; reconnect loops retry on failure</li>
+<li>[x] <b>sws</b>: all PING replies go through <code>pending_pong</code> + flush (EAGAIN-safe)</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

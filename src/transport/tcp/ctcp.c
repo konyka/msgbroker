@@ -52,8 +52,11 @@ static void mb_ctcp_reconnect_loop (void *arg)
         int fd;
         struct mb_sipc *sipc;
 
-        fd = mb_net_connect (self->host, self->port, NULL);
+        fd = mb_net_connect_while (self->host, self->port, NULL,
+            &self->running, 5000);
         if (fd < 0) {
+            if (fd == -ECANCELED)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -61,8 +64,6 @@ static void mb_ctcp_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
-
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
         if (!sipc) {
@@ -83,7 +84,14 @@ static void mb_ctcp_reconnect_loop (void *arg)
         }
         self->sipc = sipc;
         mb_sipc_set_on_error (sipc, mb_ctcp_on_disconnect, self);
-        mb_sipc_start (sipc);
+        if (mb_sipc_start (sipc) < 0) {
+            self->sipc = NULL;
+            mb_sipc_term (sipc);
+            mb_free (sipc);
+            mb_mutex_unlock (&self->lock);
+            mb_msleep_while (&self->running, current_ivl);
+            continue;
+        }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
@@ -98,11 +106,10 @@ static int mb_ctcp_do_connect (struct mb_ctcp *self)
 {
     int fd;
 
-    fd = mb_net_connect (self->host, self->port, NULL);
+    fd = mb_net_connect_while (self->host, self->port, NULL,
+        &self->running, 5000);
     if (fd < 0)
         return fd;
-
-    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
     self->sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
     if (!self->sipc) {
@@ -112,7 +119,12 @@ static int mb_ctcp_do_connect (struct mb_ctcp *self)
 
     mb_sipc_create (self->sipc, self->ep, fd);
     mb_sipc_set_on_error (self->sipc, mb_ctcp_on_disconnect, self);
-    mb_sipc_start (self->sipc);
+    if (mb_sipc_start (self->sipc) < 0) {
+        mb_sipc_term (self->sipc);
+        mb_free (self->sipc);
+        self->sipc = NULL;
+        return -ECONNREFUSED;
+    }
     return 0;
 }
 

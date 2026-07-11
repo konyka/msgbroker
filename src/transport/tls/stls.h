@@ -30,7 +30,7 @@ struct mb_stls {
 
 int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl);
 void mb_stls_term (struct mb_stls *self);
-void mb_stls_start (struct mb_stls *self);
+int mb_stls_start (struct mb_stls *self);
 void mb_stls_stop (struct mb_stls *self);
 void mb_stls_set_on_error (struct mb_stls *self, void (*cb) (void *),
     void *arg);

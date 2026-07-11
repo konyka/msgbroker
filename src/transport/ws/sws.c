@@ -267,9 +267,9 @@ void mb_sws_term (struct mb_sws *self)
     }
 }
 
-void mb_sws_start (struct mb_sws *self)
+int mb_sws_start (struct mb_sws *self)
 {
-    mb_pipebase_start (&self->pipebase);
+    return mb_pipebase_start (&self->pipebase);
 }
 
 void mb_sws_stop (struct mb_sws *self)
@@ -554,20 +554,25 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     (size_t) self->payload_len, self->mask_key);
 
             if (self->inlen == MB_WS_OPCODE_PING) {
-                if (self->outbuf) {
-                    /* Defer PONG until binary outbuf finishes. */
-                    self->pong_len = self->payload_len;
-                    if (self->pong_len > 0)
-                        memcpy (self->pong_buf,
-                            mb_chunkref_data (&self->inmsg.body),
-                            (size_t) self->pong_len);
-                    self->pending_pong = 1;
-                } else if (self->payload_len > 0) {
-                    mb_sws_send_pong (self,
+                int prc;
+
+                if (self->payload_len > 0)
+                    memcpy (self->pong_buf,
                         mb_chunkref_data (&self->inmsg.body),
                         (size_t) self->payload_len);
-                } else {
-                    mb_sws_send_pong (self, NULL, 0);
+                self->pong_len = self->payload_len;
+                self->pending_pong = 1;
+
+                if (!self->outbuf) {
+                    prc = mb_sws_flush_pending_pong (self);
+                    if (prc < 0 && prc != -EAGAIN) {
+                        mb_msg_term (&self->inmsg);
+                        mb_msg_init (&self->inmsg, 0);
+                        self->instate = MB_SWS_INSTATE_HDR;
+                        self->inpos = 0;
+                        self->payload_len = 0;
+                        return prc;
+                    }
                 }
             }
 

@@ -38,7 +38,7 @@ struct mb_sws {
 int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     int is_client);
 void mb_sws_term (struct mb_sws *self);
-void mb_sws_start (struct mb_sws *self);
+int mb_sws_start (struct mb_sws *self);
 void mb_sws_stop (struct mb_sws *self);
 void mb_sws_set_on_error (struct mb_sws *self, void (*cb) (void *), void *arg);
 

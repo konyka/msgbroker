@@ -104,9 +104,9 @@ void mb_sipc_term (struct mb_sipc *self)
     }
 }
 
-void mb_sipc_start (struct mb_sipc *self)
+int mb_sipc_start (struct mb_sipc *self)
 {
-    mb_pipebase_start (&self->pipebase);
+    return mb_pipebase_start (&self->pipebase);
 }
 
 void mb_sipc_stop (struct mb_sipc *self)

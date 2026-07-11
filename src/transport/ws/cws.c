@@ -139,8 +139,11 @@ static void mb_cws_reconnect_loop (void *arg)
         int fd;
         struct mb_sws *sws;
 
-        fd = mb_net_connect (self->host, self->port, NULL);
+        fd = mb_net_connect_while (self->host, self->port, NULL,
+            &self->running, 5000);
         if (fd < 0) {
+            if (fd == -ECANCELED)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -148,6 +151,8 @@ static void mb_cws_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
+
+        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
 
         if (mb_cws_do_handshake (fd, self->host, self->port) < 0) {
             close (fd);
@@ -180,7 +185,14 @@ static void mb_cws_reconnect_loop (void *arg)
         }
         self->sws = sws;
         mb_sws_set_on_error (sws, mb_cws_on_disconnect, self);
-        mb_sws_start (sws);
+        if (mb_sws_start (sws) < 0) {
+            self->sws = NULL;
+            mb_sws_term (sws);
+            mb_free (sws);
+            mb_mutex_unlock (&self->lock);
+            mb_msleep_while (&self->running, current_ivl);
+            continue;
+        }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
@@ -196,9 +208,12 @@ static int mb_cws_do_connect (struct mb_cws *self)
     int fd;
     int rc;
 
-    fd = mb_net_connect (self->host, self->port, NULL);
+    fd = mb_net_connect_while (self->host, self->port, NULL,
+        &self->running, 5000);
     if (fd < 0)
         return fd;
+
+    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
 
     rc = mb_cws_do_handshake (fd, self->host, self->port);
     if (rc < 0) {
@@ -216,7 +231,12 @@ static int mb_cws_do_connect (struct mb_cws *self)
 
     mb_sws_create (self->sws, self->ep, fd, 1);
     mb_sws_set_on_error (self->sws, mb_cws_on_disconnect, self);
-    mb_sws_start (self->sws);
+    if (mb_sws_start (self->sws) < 0) {
+        mb_sws_term (self->sws);
+        mb_free (self->sws);
+        self->sws = NULL;
+        return -ECONNREFUSED;
+    }
     return 0;
 }
 

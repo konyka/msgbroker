@@ -29,7 +29,7 @@ struct mb_sipc {
 
 int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd);
 void mb_sipc_term (struct mb_sipc *self);
-void mb_sipc_start (struct mb_sipc *self);
+int mb_sipc_start (struct mb_sipc *self);
 void mb_sipc_stop (struct mb_sipc *self);
 void mb_sipc_set_on_error (struct mb_sipc *self, void (*cb) (void *), void *arg);
 

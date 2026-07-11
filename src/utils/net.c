@@ -10,6 +10,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
+#include <fcntl.h>
+#include <poll.h>
 
 int mb_net_parse_addr (const char *addr, char *host, size_t hostlen,
     uint16_t *port)
@@ -56,6 +58,12 @@ int mb_net_parse_addr (const char *addr, char *host, size_t hostlen,
 
 int mb_net_connect (const char *host, uint16_t port, int *family)
 {
+    return mb_net_connect_while (host, port, family, NULL, 5000);
+}
+
+int mb_net_connect_while (const char *host, uint16_t port, int *family,
+    volatile int *running, int timeout_ms)
+{
     struct addrinfo hints;
     struct addrinfo *result;
     struct addrinfo *rp;
@@ -63,6 +71,10 @@ int mb_net_connect (const char *host, uint16_t port, int *family)
     int fd;
     int rc;
     int flag = 1;
+    int budget;
+
+    if (timeout_ms <= 0)
+        timeout_ms = 5000;
 
     memset (&hints, 0, sizeof (hints));
     hints.ai_family = AF_UNSPEC;
@@ -75,21 +87,72 @@ int mb_net_connect (const char *host, uint16_t port, int *family)
         return -EADDRNOTAVAIL;
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {
+        if (running && !*running) {
+            freeaddrinfo (result);
+            return -ECANCELED;
+        }
+
         fd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (fd < 0)
             continue;
 
         setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof (flag));
+        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
 
         rc = connect (fd, rp->ai_addr, rp->ai_addrlen);
-        if (rc == 0) {
-            if (family)
-                *family = rp->ai_family;
-            freeaddrinfo (result);
-            return fd;
+        if (rc == 0)
+            goto connected;
+        if (errno != EINPROGRESS) {
+            close (fd);
+            continue;
         }
 
-        close (fd);
+        budget = timeout_ms;
+        while (budget > 0) {
+            struct pollfd pfd;
+            int slice = budget > 50 ? 50 : budget;
+            int soerr = 0;
+            socklen_t solen = sizeof (soerr);
+
+            if (running && !*running) {
+                close (fd);
+                freeaddrinfo (result);
+                return -ECANCELED;
+            }
+
+            pfd.fd = fd;
+            pfd.events = POLLOUT;
+            rc = poll (&pfd, 1, slice);
+            if (rc < 0) {
+                if (errno == EINTR)
+                    continue;
+                close (fd);
+                fd = -1;
+                break;
+            }
+            if (rc == 0) {
+                budget -= slice;
+                continue;
+            }
+
+            if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &soerr, &solen) < 0 ||
+                soerr != 0) {
+                close (fd);
+                fd = -1;
+                break;
+            }
+            goto connected;
+        }
+
+        if (fd >= 0)
+            close (fd);
+        continue;
+
+connected:
+        if (family)
+            *family = rp->ai_family;
+        freeaddrinfo (result);
+        return fd;
     }
 
     freeaddrinfo (result);

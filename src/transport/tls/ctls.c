@@ -89,8 +89,11 @@ static void mb_ctls_reconnect_loop (void *arg)
         SSL *ssl;
         struct mb_stls *stls;
 
-        fd = mb_net_connect (self->host, self->port, NULL);
+        fd = mb_net_connect_while (self->host, self->port, NULL,
+            &self->running, 5000);
         if (fd < 0) {
+            if (fd == -ECANCELED)
+                break;
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -98,6 +101,9 @@ static void mb_ctls_reconnect_loop (void *arg)
                 current_ivl = ivl_max;
             continue;
         }
+
+        /* Handshake needs a blocking socket; restore nonblock after. */
+        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
 
         ssl = mb_ctls_do_ssl_connect (self, fd);
         if (!ssl) {
@@ -132,7 +138,14 @@ static void mb_ctls_reconnect_loop (void *arg)
         }
         self->stls = stls;
         mb_stls_set_on_error (stls, mb_ctls_on_disconnect, self);
-        mb_stls_start (stls);
+        if (mb_stls_start (stls) < 0) {
+            self->stls = NULL;
+            mb_stls_term (stls);
+            mb_free (stls);
+            mb_mutex_unlock (&self->lock);
+            mb_msleep_while (&self->running, current_ivl);
+            continue;
+        }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
         return;
@@ -148,9 +161,12 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
     int fd;
     SSL *ssl;
 
-    fd = mb_net_connect (self->host, self->port, NULL);
+    fd = mb_net_connect_while (self->host, self->port, NULL,
+        &self->running, 5000);
     if (fd < 0)
         return fd;
+
+    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) & ~O_NONBLOCK);
 
     ssl = mb_ctls_do_ssl_connect (self, fd);
     if (!ssl) {
@@ -169,7 +185,12 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
 
     mb_stls_create (self->stls, self->ep, ssl);
     mb_stls_set_on_error (self->stls, mb_ctls_on_disconnect, self);
-    mb_stls_start (self->stls);
+    if (mb_stls_start (self->stls) < 0) {
+        mb_stls_term (self->stls);
+        mb_free (self->stls);
+        self->stls = NULL;
+        return -ECONNREFUSED;
+    }
     return 0;
 }
 
