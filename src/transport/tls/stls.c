@@ -15,10 +15,6 @@
 #define MB_STLS_INSTATE_BODY 2
 #define MB_STLS_INSTATE_HASMSG 3
 
-#define MB_STLS_OUTSTATE_IDLE 0
-#define MB_STLS_OUTSTATE_HDR  1
-#define MB_STLS_OUTSTATE_BODY 2
-
 static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg);
 
@@ -79,9 +75,9 @@ int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl)
     self->inpos = 0;
     self->inlen = 0;
     self->instate = MB_STLS_INSTATE_HDR;
+    self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
-    self->outstate = MB_STLS_OUTSTATE_IDLE;
     self->disconnected = 0;
     self->on_error = NULL;
     self->on_error_arg = NULL;
@@ -115,6 +111,10 @@ void mb_stls_term (struct mb_stls *self)
     mb_msg_term (&self->inmsg);
     mb_list_item_term (&self->item);
     mb_pipebase_term (&self->pipebase);
+    if (self->outbuf) {
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+    }
     if (self->ssl) {
         int fd = SSL_get_fd (self->ssl);
         SSL_shutdown (self->ssl);
@@ -134,6 +134,12 @@ void mb_stls_stop (struct mb_stls *self)
 {
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
+    if (self->outbuf) {
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+        self->outpos = 0;
+        self->outlen = 0;
+    }
     if (self->ssl) {
         int fd = SSL_get_fd (self->ssl);
         SSL_shutdown (self->ssl);
@@ -149,46 +155,35 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
     struct mb_stls *self = mb_cont (base, struct mb_stls, pipebase);
     int rc;
 
-    if (self->outstate == MB_STLS_OUTSTATE_IDLE) {
-        self->outlen = (int) mb_chunkref_size (&msg->body);
-        mb_wire_put_uint32 (self->outhdr, (uint32_t) self->outlen);
-        self->outstate = MB_STLS_OUTSTATE_HDR;
+    if (!self->outbuf) {
+        size_t body_size = mb_chunkref_size (&msg->body);
+
+        self->outlen = (int) (MB_STLS_HDR_SIZE + body_size);
+        self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
+        if (!self->outbuf)
+            return -ENOMEM;
+        mb_wire_put_uint32 (self->outbuf, (uint32_t) body_size);
+        if (body_size > 0)
+            memcpy (self->outbuf + MB_STLS_HDR_SIZE,
+                mb_chunkref_data (&msg->body), body_size);
         self->outpos = 0;
     }
 
-    if (self->outstate == MB_STLS_OUTSTATE_HDR) {
-        rc = mb_stls_send_ssl (self->ssl, self->outhdr + self->outpos,
-            (size_t) (MB_STLS_HDR_SIZE - self->outpos));
+    while (self->outpos < self->outlen) {
+        rc = mb_stls_send_ssl (self->ssl, self->outbuf + self->outpos,
+            (size_t) (self->outlen - self->outpos));
         if (rc < 0) {
             if (rc != -EAGAIN)
                 mb_stls_report_error (self);
             return rc;
         }
         self->outpos += rc;
-        if (self->outpos < MB_STLS_HDR_SIZE)
-            return -EAGAIN;
-        self->outstate = MB_STLS_OUTSTATE_BODY;
-        self->outpos = 0;
     }
 
-    if (self->outstate == MB_STLS_OUTSTATE_BODY) {
-        if (self->outlen > 0) {
-            rc = mb_stls_send_ssl (self->ssl,
-                (uint8_t *) mb_chunkref_data (&msg->body) + self->outpos,
-                (size_t) (self->outlen - self->outpos));
-            if (rc < 0) {
-                if (rc != -EAGAIN)
-                    mb_stls_report_error (self);
-                return rc;
-            }
-            self->outpos += rc;
-            if (self->outpos < self->outlen)
-                return -EAGAIN;
-        }
-        self->outstate = MB_STLS_OUTSTATE_IDLE;
-        self->outpos = 0;
-        self->outlen = 0;
-    }
+    mb_free (self->outbuf);
+    self->outbuf = NULL;
+    self->outpos = 0;
+    self->outlen = 0;
 
     mb_msg_term (msg);
     mb_msg_init (msg, 0);

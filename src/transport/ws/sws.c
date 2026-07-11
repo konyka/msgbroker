@@ -252,11 +252,14 @@ void mb_sws_term (struct mb_sws *self)
         self->outbuf = NULL;
     }
     if (self->ssl) {
+        int fd = SSL_get_fd (self->ssl);
         SSL_shutdown (self->ssl);
         SSL_free (self->ssl);
         self->ssl = NULL;
-    }
-    if (self->fd >= 0) {
+        if (fd >= 0)
+            close (fd);
+        self->fd = -1;
+    } else if (self->fd >= 0) {
         close (self->fd);
         self->fd = -1;
     }
@@ -277,7 +280,15 @@ void mb_sws_stop (struct mb_sws *self)
         self->outlen = 0;
         self->outpos = 0;
     }
-    if (self->fd >= 0) {
+    if (self->ssl) {
+        int fd = SSL_get_fd (self->ssl);
+        SSL_shutdown (self->ssl);
+        SSL_free (self->ssl);
+        self->ssl = NULL;
+        if (fd >= 0)
+            close (fd);
+        self->fd = -1;
+    } else if (self->fd >= 0) {
         close (self->fd);
         self->fd = -1;
     }
