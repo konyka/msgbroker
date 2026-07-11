@@ -290,6 +290,9 @@ int mb_close (int s)
     --g_self.nsocks;
     mb_mutex_unlock (&g_self.lock);
 
+    (void) __atomic_fetch_or (&sock->flags, MB_SOCK_FLAG_STOPPING,
+        __ATOMIC_ACQ_REL);
+
     /* Drop the two permanent refs, then wait for in-flight send/recv. */
     mb_sock_rele (sock);
     mb_sock_rele (sock);
@@ -460,6 +463,13 @@ int mb_shutdown (int s, int how)
     if (rc < 0) {
         mb_err_set_errno (-rc);
         return -1;
+    }
+
+    /* Only one shutdown/close path may tear down the socket. */
+    if (__atomic_fetch_or (&sock->flags, MB_SOCK_FLAG_STOPPING,
+            __ATOMIC_ACQ_REL) & MB_SOCK_FLAG_STOPPING) {
+        mb_global_rele_socket (sock);
+        return 0;
     }
 
     /* holds = 2 permanent + this call's hold. Wait for other in-flight

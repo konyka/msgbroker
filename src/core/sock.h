@@ -18,6 +18,7 @@
 
 #define MB_SOCK_FLAG_IN  1
 #define MB_SOCK_FLAG_OUT 2
+#define MB_SOCK_FLAG_STOPPING 4
 
 struct mb_sock {
     struct mb_fsm fsm;

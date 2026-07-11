@@ -241,10 +241,12 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
 
     if (self->socktype->flags & MB_SOCKTYPE_FLAG_NOSEND)
         return -EOPNOTSUPP;
-    if (!self->sockbase)
-        return -EBADF;
 
     mb_ctx_enter (&self->ctx);
+    if (!self->sockbase) {
+        mb_ctx_leave (&self->ctx);
+        return -EBADF;
+    }
     rc = self->sockbase->vfptr->send (self->sockbase, msg);
     if (rc >= 0) {
         self->statistics.messages_sent++;
@@ -260,10 +262,12 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
 
     if (self->socktype->flags & MB_SOCKTYPE_FLAG_NORECV)
         return -EOPNOTSUPP;
-    if (!self->sockbase)
-        return -EBADF;
 
     mb_ctx_enter (&self->ctx);
+    if (!self->sockbase) {
+        mb_ctx_leave (&self->ctx);
+        return -EBADF;
+    }
     rc = self->sockbase->vfptr->recv (self->sockbase, msg);
     if (rc >= 0) {
         self->statistics.messages_received++;
