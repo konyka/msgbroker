@@ -269,7 +269,20 @@ int mb_btls_create (struct mb_ep *ep)
     mb_ep_tran_setup (ep, &mb_btls_ops, self);
 
     mb_thread_init (&self->accept_thread);
-    mb_thread_start (&self->accept_thread, mb_btls_accept_loop, self);
+    if (mb_thread_start (&self->accept_thread, mb_btls_accept_loop, self) != 0) {
+        self->running = 0;
+        if (self->ctx) {
+            SSL_CTX_free (self->ctx);
+            self->ctx = NULL;
+        }
+        close (self->listen_fd);
+        self->listen_fd = -1;
+        mb_mutex_term (&self->lock);
+        mb_list_term (&self->stlss);
+        mb_list_term (&self->zombies);
+        mb_free (self);
+        return -EAGAIN;
+    }
 
     return 0;
 }

@@ -186,7 +186,17 @@ int mb_bipc_create (struct mb_ep *ep)
     mb_ep_tran_setup (ep, &mb_bipc_ops, self);
 
     mb_thread_init (&self->accept_thread);
-    mb_thread_start (&self->accept_thread, mb_bipc_accept_loop, self);
+    if (mb_thread_start (&self->accept_thread, mb_bipc_accept_loop, self) != 0) {
+        self->running = 0;
+        close (self->listen_fd);
+        self->listen_fd = -1;
+        unlink (self->path);
+        mb_mutex_term (&self->lock);
+        mb_list_term (&self->sipcs);
+        mb_list_term (&self->zombies);
+        mb_free (self);
+        return -EAGAIN;
+    }
 
     return 0;
 }

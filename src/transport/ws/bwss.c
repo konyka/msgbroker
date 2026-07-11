@@ -515,6 +515,11 @@ static void mb_bwss_stop (void *p)
     mb_bwss_free_zombies (self);
     mb_mutex_unlock (&self->lock);
 
+    if (self->listen_fd >= 0) {
+        close (self->listen_fd);
+        self->listen_fd = -1;
+    }
+
     mb_ep_stopped (self->ep);
 }
 
@@ -525,8 +530,10 @@ static void mb_bwss_destroy (void *p)
     if (self->running)
         mb_bwss_stop (p);
 
-    if (self->listen_fd >= 0)
+    if (self->listen_fd >= 0) {
         close (self->listen_fd);
+        self->listen_fd = -1;
+    }
     if (self->ctx)
         SSL_CTX_free (self->ctx);
     mb_mutex_term (&self->lock);
