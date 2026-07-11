@@ -164,6 +164,7 @@ static void mb_cws_reconnect_loop (void *arg)
         sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
         if (!sws) {
             close (fd);
+            mb_msleep_while (&self->running, current_ivl);
             continue;
         }
 

@@ -115,6 +115,7 @@ static void mb_ctls_reconnect_loop (void *arg)
         stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
         if (!stls) {
             SSL_free (ssl);
+            mb_msleep_while (&self->running, current_ivl);
             continue;
         }
 

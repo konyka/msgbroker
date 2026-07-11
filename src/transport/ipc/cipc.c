@@ -96,6 +96,7 @@ static void mb_cipc_reconnect_loop (void *arg)
         sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));
         if (!sipc) {
             close (fd);
+            mb_msleep_while (&self->running, current_ivl);
             continue;
         }
 

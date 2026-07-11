@@ -51,20 +51,22 @@ static int mb_sipc_recv_fd (int fd, void *buf, size_t len)
 {
     uint8_t *ptr = (uint8_t *) buf;
     size_t remaining = len;
+    size_t got = 0;
 
     while (remaining > 0) {
         ssize_t nr = recv (fd, ptr, remaining, 0);
         if (nr <= 0) {
             if (nr == 0)
-                return -ECONNRESET;
+                return got > 0 ? (int) got : -ECONNRESET;
             if (errno == EAGAIN || errno == EWOULDBLOCK)
-                return -EAGAIN;
+                return got > 0 ? (int) got : -EAGAIN;
             return -errno;
         }
         ptr += nr;
         remaining -= (size_t) nr;
+        got += (size_t) nr;
     }
-    return 0;
+    return (int) got;
 }
 
 int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
@@ -201,7 +203,9 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
             mb_sipc_report_error (self);
             return rc;
         }
-        self->inpos = MB_SIPC_HDR_SIZE;
+        self->inpos += rc;
+        if (self->inpos < MB_SIPC_HDR_SIZE)
+            return -EAGAIN;
 
         body_size = mb_wire_get_uint32 (self->inhdr);
         if (body_size > 1024 * 1024) {
@@ -227,6 +231,9 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 mb_sipc_report_error (self);
                 return rc;
             }
+            self->inpos += rc;
+            if (self->inpos < self->inlen)
+                return -EAGAIN;
         }
         self->instate = MB_SIPC_INSTATE_HASMSG;
     }

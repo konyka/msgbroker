@@ -24,6 +24,7 @@
 #define MB_SWS_INSTATE_HDR  1
 #define MB_SWS_INSTATE_BODY 2
 #define MB_SWS_INSTATE_HASMSG 3
+#define MB_SWS_INSTATE_CTRL 4
 
 static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg);
@@ -272,10 +273,16 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         int rc = mb_sws_send_frame (self, MB_WS_OPCODE_BINARY, frame,
             frame_len);
         mb_free (frame);
-        if (rc < 0 && rc != -EAGAIN)
-            mb_sws_report_error (self);
-        return rc;
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_sws_report_error (self);
+            return rc;
+        }
     }
+
+    mb_msg_term (msg);
+    mb_msg_init (msg, 0);
+    return 0;
 }
 
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
@@ -285,7 +292,6 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
     for (;;) {
         if (self->instate == MB_SWS_INSTATE_HDR) {
             int need;
-            int have;
 
             if (self->inpos < 2) {
                 ssize_t nr;
@@ -372,67 +378,39 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     return -ECONNRESET;
                 }
 
-                if (opcode == MB_WS_OPCODE_PING) {
-                    uint8_t ping_data[125];
-                    if (self->payload_len > 0 && self->payload_len <= 125) {
-                        have = 0;
-                        while (have < self->payload_len) {
-                            ssize_t nr;
-                            mb_sws_do_recv (self,
-                                ping_data + have,
-                                (size_t) (self->payload_len - have), &nr);
-                            if (nr <= 0) {
-                                if (nr == 0) {
-                                    mb_sws_report_error (self);
-                                    return -ECONNRESET;
-                                }
-                                if (errno == EAGAIN || errno == EWOULDBLOCK)
-                                    return -EAGAIN;
-                                mb_sws_report_error (self);
-                                return -errno;
-                            }
-                            have += (int) nr;
-                        }
-                        if (masked)
-                            mb_ws_mask (ping_data, (size_t) self->payload_len,
-                                self->mask_key);
-                        mb_sws_send_pong (self, ping_data,
-                            (size_t) self->payload_len);
-                    } else {
-                        mb_sws_send_pong (self, NULL, 0);
+                if (opcode == MB_WS_OPCODE_PING ||
+                    opcode == MB_WS_OPCODE_PONG) {
+                    /* Control frames must be <= 125 bytes (RFC 6455). */
+                    if (self->payload_len > 125) {
+                        mb_sws_report_error (self);
+                        return -EPROTO;
                     }
+                    mb_msg_term (&self->inmsg);
+                    mb_msg_init (&self->inmsg,
+                        (size_t) self->payload_len);
+                    self->inlen = (int) opcode;
                     self->inpos = 0;
+                    self->instate = MB_SWS_INSTATE_CTRL;
                     continue;
                 }
 
-                if (opcode == MB_WS_OPCODE_PONG) {
-                    self->inpos = 0;
-                    self->payload_len = 0;
-                    continue;
-                }
-
+                mb_msg_term (&self->inmsg);
+                mb_msg_init (&self->inmsg, (size_t) self->payload_len);
                 self->instate = MB_SWS_INSTATE_BODY;
                 self->inpos = 0;
             }
         }
 
-        if (self->instate == MB_SWS_INSTATE_BODY) {
-            uint8_t *body;
-            int remaining;
-            int have;
+        if (self->instate == MB_SWS_INSTATE_CTRL) {
+            int masked = (self->inhdr[1] & MB_WS_MASK_BIT) ? 1 : 0;
 
-            body = (uint8_t *) mb_alloc ((size_t) self->payload_len);
-            if (!body)
-                return -ENOMEM;
-
-            remaining = self->payload_len;
-            have = 0;
-            while (have < remaining) {
+            while (self->inpos < self->payload_len) {
                 ssize_t nr;
-                mb_sws_do_recv (self, body + have,
-                    (size_t) (remaining - have), &nr);
+                uint8_t *dst = (uint8_t *) mb_chunkref_data (
+                    &self->inmsg.body);
+                mb_sws_do_recv (self, dst + self->inpos,
+                    (size_t) (self->payload_len - self->inpos), &nr);
                 if (nr <= 0) {
-                    mb_free (body);
                     if (nr == 0) {
                         mb_sws_report_error (self);
                         return -ECONNRESET;
@@ -442,15 +420,60 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     mb_sws_report_error (self);
                     return -errno;
                 }
-                have += (int) nr;
+                self->inpos += (int) nr;
             }
 
-            if ((self->inhdr[1] & MB_WS_MASK_BIT))
+            if (self->payload_len > 0 && masked)
+                mb_ws_mask (mb_chunkref_data (&self->inmsg.body),
+                    (size_t) self->payload_len, self->mask_key);
+
+            if (self->inlen == MB_WS_OPCODE_PING) {
+                if (self->payload_len > 0)
+                    mb_sws_send_pong (self,
+                        mb_chunkref_data (&self->inmsg.body),
+                        (size_t) self->payload_len);
+                else
+                    mb_sws_send_pong (self, NULL, 0);
+            }
+
+            mb_msg_term (&self->inmsg);
+            mb_msg_init (&self->inmsg, 0);
+            self->instate = MB_SWS_INSTATE_HDR;
+            self->inpos = 0;
+            self->payload_len = 0;
+            continue;
+        }
+
+        if (self->instate == MB_SWS_INSTATE_BODY) {
+            uint8_t *body;
+
+            while (self->inpos < self->payload_len) {
+                ssize_t nr;
+                body = (uint8_t *) mb_chunkref_data (&self->inmsg.body);
+                mb_sws_do_recv (self, body + self->inpos,
+                    (size_t) (self->payload_len - self->inpos), &nr);
+                if (nr <= 0) {
+                    if (nr == 0) {
+                        mb_sws_report_error (self);
+                        return -ECONNRESET;
+                    }
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        return -EAGAIN;
+                    mb_sws_report_error (self);
+                    return -errno;
+                }
+                self->inpos += (int) nr;
+            }
+
+            body = (uint8_t *) mb_chunkref_data (&self->inmsg.body);
+
+            if ((self->inhdr[1] & MB_WS_MASK_BIT) && self->payload_len > 0)
                 mb_ws_mask (body, (size_t) self->payload_len,
                     self->mask_key);
 
             if (self->payload_len < 4) {
-                mb_free (body);
+                mb_msg_term (&self->inmsg);
+                mb_msg_init (&self->inmsg, 0);
                 self->instate = MB_SWS_INSTATE_HDR;
                 self->inpos = 0;
                 continue;
@@ -459,18 +482,27 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
             {
                 uint32_t msg_len = mb_wire_get_uint32 (body);
                 if (msg_len > (uint32_t) (self->payload_len - 4)) {
-                    mb_free (body);
+                    mb_msg_term (&self->inmsg);
+                    mb_msg_init (&self->inmsg, 0);
                     self->instate = MB_SWS_INSTATE_HDR;
                     self->inpos = 0;
                     continue;
                 }
 
-                mb_msg_term (&self->inmsg);
-                mb_msg_init (&self->inmsg, 0);
-                if (msg_len > 0)
-                    mb_chunkref_set (&self->inmsg.body,
-                        body + 4, (size_t) msg_len);
-                mb_free (body);
+                if (msg_len > 0) {
+                    void *tmp = mb_alloc ((size_t) msg_len);
+                    if (!tmp)
+                        return -ENOMEM;
+                    memcpy (tmp, body + 4, (size_t) msg_len);
+                    mb_msg_term (&self->inmsg);
+                    mb_msg_init (&self->inmsg, 0);
+                    mb_chunkref_set (&self->inmsg.body, tmp,
+                        (size_t) msg_len);
+                    mb_free (tmp);
+                } else {
+                    mb_msg_term (&self->inmsg);
+                    mb_msg_init (&self->inmsg, 0);
+                }
             }
 
             self->instate = MB_SWS_INSTATE_HASMSG;

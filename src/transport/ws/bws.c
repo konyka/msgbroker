@@ -236,13 +236,13 @@ static void mb_bws_accept_loop (void *arg)
                     &flag, sizeof (flag));
             }
 
-            fcntl (client_fd, F_SETFL,
-                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
-
             if (mb_bws_do_handshake (client_fd) < 0) {
                 close (client_fd);
                 continue;
             }
+
+            fcntl (client_fd, F_SETFL,
+                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
 
             sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
             if (!sws) {
