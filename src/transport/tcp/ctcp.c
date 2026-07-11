@@ -5,6 +5,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
 #include "../../utils/net.h"
+#include "../../pal/sleep.h"
 
 #include <msgbroker/mb.h>
 
@@ -53,8 +54,7 @@ static void mb_ctcp_reconnect_loop (void *arg)
 
         fd = mb_net_connect (self->host, self->port, NULL);
         if (fd < 0) {
-            struct pollfd pfd = { .fd = -1, .events = 0 };
-            poll (&pfd, 0, current_ivl);
+            mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
             if (current_ivl > ivl_max && ivl_max > 0)
@@ -147,8 +147,13 @@ int mb_ctcp_create (struct mb_ep *ep)
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
         self->reconnecting = 1;
-        mb_thread_start (&self->reconnect_thread,
-            mb_ctcp_reconnect_loop, self);
+        if (mb_thread_start (&self->reconnect_thread,
+                mb_ctcp_reconnect_loop, self) != 0) {
+            self->reconnecting = 0;
+            mb_mutex_term (&self->lock);
+            mb_free (self);
+            return -EAGAIN;
+        }
         return 0;
     }
 
@@ -187,8 +192,12 @@ static void mb_ctcp_on_disconnect (void *p)
         /* Join any prior finished reconnect thread, then spawn a new one. */
         mb_thread_term (&self->reconnect_thread);
         mb_thread_init (&self->reconnect_thread);
-        mb_thread_start (&self->reconnect_thread,
-            mb_ctcp_reconnect_loop, self);
+        if (mb_thread_start (&self->reconnect_thread,
+                mb_ctcp_reconnect_loop, self) != 0) {
+            mb_mutex_lock (&self->lock);
+            self->reconnecting = 0;
+            mb_mutex_unlock (&self->lock);
+        }
     }
 }
 

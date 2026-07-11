@@ -29,3 +29,23 @@ void mb_msleep (int milliseconds)
     nanosleep (&ts, NULL);
 #endif
 }
+
+void mb_msleep_while (volatile int *running, int milliseconds)
+{
+    int waited = 0;
+
+    if (milliseconds <= 0)
+        return;
+
+    while (waited < milliseconds) {
+        int slice;
+
+        if (running && !*running)
+            return;
+        slice = milliseconds - waited;
+        if (slice > 50)
+            slice = 50;
+        mb_msleep (slice);
+        waited += slice;
+    }
+}

@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -76,6 +77,9 @@ static void mb_btls_accept_loop (void *arg)
                 SSL_free (ssl);
                 continue;
             }
+
+            fcntl (client_fd, F_SETFL,
+                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
 
             stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
             if (!stls) {

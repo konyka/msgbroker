@@ -4,6 +4,7 @@
 #include "../../core/sock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
+#include "../../pal/sleep.h"
 
 #include <msgbroker/mb.h>
 
@@ -68,8 +69,7 @@ static void mb_cipc_reconnect_loop (void *arg)
 
         fd = socket (AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0) {
-            struct pollfd pfd = { .fd = -1, .events = 0 };
-            poll (&pfd, 0, current_ivl);
+            mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
             if (current_ivl > ivl_max && ivl_max > 0)
@@ -83,8 +83,7 @@ static void mb_cipc_reconnect_loop (void *arg)
 
         if (connect (fd, (struct sockaddr *) &sa, sizeof (sa)) < 0) {
             close (fd);
-            struct pollfd pfd = { .fd = -1, .events = 0 };
-            poll (&pfd, 0, current_ivl);
+            mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
             if (current_ivl > ivl_max && ivl_max > 0)
@@ -182,8 +181,13 @@ int mb_cipc_create (struct mb_ep *ep)
 
     if (mb_ep_sock (ep)->reconnect_ivl > 0) {
         self->reconnecting = 1;
-        mb_thread_start (&self->reconnect_thread,
-            mb_cipc_reconnect_loop, self);
+        if (mb_thread_start (&self->reconnect_thread,
+                mb_cipc_reconnect_loop, self) != 0) {
+            self->reconnecting = 0;
+            mb_mutex_term (&self->lock);
+            mb_free (self);
+            return -EAGAIN;
+        }
         return 0;
     }
 
@@ -219,8 +223,12 @@ static void mb_cipc_on_disconnect (void *p)
     if (start_reconnect) {
         mb_thread_term (&self->reconnect_thread);
         mb_thread_init (&self->reconnect_thread);
-        mb_thread_start (&self->reconnect_thread,
-            mb_cipc_reconnect_loop, self);
+        if (mb_thread_start (&self->reconnect_thread,
+                mb_cipc_reconnect_loop, self) != 0) {
+            mb_mutex_lock (&self->lock);
+            self->reconnecting = 0;
+            mb_mutex_unlock (&self->lock);
+        }
     }
 }
 

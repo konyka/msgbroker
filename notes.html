@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-53 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-54 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -870,6 +870,19 @@ li { margin: 5px 0; }
 <li>[x] <b>mb_sock_shutdown</b>: synchronously stop/destroy all endpoints on close (fixes listen-fd leak that blocked port rebind)</li>
 <li>[x] <b>btcp/bipc/btls/binproc</b>: use <code>mb_cont(..., item)</code> when walking session lists (item is not the first struct field)</li>
 <li>[x] <b>test_reconnect_disc</b>: TCP/IPC/WS/TLS/WSS — close server mid-stream, rebind, verify client resumes messaging</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 54 — Reconnect Backoff Responsiveness &amp; TLS Nonblock</h2>
+<span class="status done">DONE</span>
+<p>Hardening follow-ups from Phase 53 review: stop/join must not wait a full reconnect interval, thread-start failures must not leave endpoints stuck reconnecting, and TLS sessions must use non-blocking sockets like TCP/WS.</p>
+<ul>
+<li>[x] <b>mb_msleep_while</b>: slice backoff sleep (50ms) and return early when <code>running</code> clears — used by cipc/ctcp/ctls/cws/cwss reconnect loops</li>
+<li>[x] <b>mb_thread_start</b> failure: clear <code>reconnecting</code> (and free on create-path failure) so endpoints are not stuck forever</li>
+<li>[x] <b>sws PING path</b>: treat <code>EAGAIN</code>/<code>EWOULDBLOCK</code> as retry, not disconnect</li>
+<li>[x] <b>ctls/btls</b>: set <code>O_NONBLOCK</code> after TLS handshake (matches ctcp/cws/cwss/btcp)</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

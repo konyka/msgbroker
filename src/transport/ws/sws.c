@@ -382,8 +382,14 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                                 ping_data + have,
                                 (size_t) (self->payload_len - have), &nr);
                             if (nr <= 0) {
+                                if (nr == 0) {
+                                    mb_sws_report_error (self);
+                                    return -ECONNRESET;
+                                }
+                                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                                    return -EAGAIN;
                                 mb_sws_report_error (self);
-                                return -ECONNRESET;
+                                return -errno;
                             }
                             have += (int) nr;
                         }
