@@ -179,40 +179,127 @@ static char *mb_wss_find_header (const char *req, const char *name)
     return (char *) p;
 }
 
-static int mb_bwss_ssl_read_http (SSL *ssl, int fd, char *buf, size_t buflen,
+static int mb_bwss_ssl_wait (SSL *ssl, int want, volatile int *running,
+    int *budget)
+{
+    int fd = SSL_get_fd (ssl);
+
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = (want == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -errno;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -ETIMEDOUT;
+}
+
+static int mb_bwss_ssl_accept_while (SSL *ssl, volatile int *running,
     int timeout_ms)
 {
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
+
+    for (;;) {
+        int rc;
+        int err;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        rc = SSL_accept (ssl);
+        if (rc == 1)
+            return 0;
+
+        err = SSL_get_error (ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (mb_bwss_ssl_wait (ssl, err, running, &budget) < 0)
+                return -1;
+            continue;
+        }
+        return -1;
+    }
+}
+
+static int mb_bwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
+    volatile int *running, int *budget)
+{
     size_t pos = 0;
-    (void) fd;
-    (void) timeout_ms;
+
     while (pos < buflen - 1) {
         int nr;
 
+        if (running && !*running)
+            return -ECANCELED;
+
         nr = SSL_read (ssl, buf + pos, 1);
-        if (nr <= 0)
+        if (nr > 0) {
+            pos += (size_t) nr;
+            buf[pos] = '\0';
+            if (pos >= 4 && memcmp (buf + pos - 4, "\r\n\r\n", 4) == 0)
+                return (int) pos;
+            continue;
+        }
+        {
+            int err = SSL_get_error (ssl, nr);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                if (mb_bwss_ssl_wait (ssl, err, running, budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        pos += (size_t) nr;
-        buf[pos] = '\0';
-        if (pos >= 4 && memcmp (buf + pos - 4, "\r\n\r\n", 4) == 0)
-            return (int) pos;
+        }
     }
     return -1;
 }
 
-static int mb_bwss_ssl_write_all (SSL *ssl, const void *data, size_t len)
+static int mb_bwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
+    volatile int *running, int *budget)
 {
     const uint8_t *ptr = (const uint8_t *) data;
     size_t sent = 0;
+
     while (sent < len) {
-        int ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
-        if (ns <= 0)
+        int ns;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
+        if (ns > 0) {
+            sent += (size_t) ns;
+            continue;
+        }
+        {
+            int err = SSL_get_error (ssl, ns);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                if (mb_bwss_ssl_wait (ssl, err, running, budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        sent += (size_t) ns;
+        }
     }
     return 0;
 }
 
-static int mb_bwss_do_handshake (SSL *ssl, int fd)
+static int mb_bwss_do_handshake (SSL *ssl, volatile int *running,
+    int timeout_ms)
 {
     char req[4096];
     char *key;
@@ -222,8 +309,10 @@ static int mb_bwss_do_handshake (SSL *ssl, int fd)
     uint8_t hash[20];
     char hash_b64[32];
     char resp[512];
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
 
-    int reqlen = mb_bwss_ssl_read_http (ssl, fd, req, sizeof (req), 5000);
+    int reqlen = mb_bwss_ssl_read_http (ssl, req, sizeof (req), running,
+        &budget);
     if (reqlen < 0)
         return -1;
 
@@ -252,7 +341,7 @@ static int mb_bwss_do_handshake (SSL *ssl, int fd)
         "Sec-WebSocket-Accept: %s\r\n"
         "\r\n", hash_b64);
 
-    return mb_bwss_ssl_write_all (ssl, resp, strlen (resp));
+    return mb_bwss_ssl_write_all (ssl, resp, strlen (resp), running, &budget);
 }
 
 static void mb_bwss_accept_loop (void *arg)
@@ -295,22 +384,22 @@ static void mb_bwss_accept_loop (void *arg)
                 continue;
             }
 
-            SSL_set_fd (ssl, client_fd);
-
-            if (SSL_accept (ssl) <= 0) {
-                SSL_free (ssl);
-                close (client_fd);
-                continue;
-            }
-
-            if (mb_bwss_do_handshake (ssl, client_fd) < 0) {
-                SSL_free (ssl);
-                close (client_fd);
-                continue;
-            }
-
             fcntl (client_fd, F_SETFL,
                 fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
+
+            SSL_set_fd (ssl, client_fd);
+
+            if (mb_bwss_ssl_accept_while (ssl, &self->running, 5000) < 0) {
+                SSL_free (ssl);
+                close (client_fd);
+                continue;
+            }
+
+            if (mb_bwss_do_handshake (ssl, &self->running, 5000) < 0) {
+                SSL_free (ssl);
+                close (client_fd);
+                continue;
+            }
 
             sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
             if (!sws) {
@@ -324,7 +413,12 @@ static void mb_bwss_accept_loop (void *arg)
             mb_sws_set_on_error (sws, mb_bwss_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
-            mb_sws_start (sws);
+            if (mb_sws_start (sws) < 0) {
+                mb_sws_term (sws);
+                mb_free (sws);
+                mb_mutex_unlock (&self->lock);
+                continue;
+            }
             mb_list_insert (&self->sws_list, &sws->item,
                 mb_list_end (&self->sws_list));
             mb_mutex_unlock (&self->lock);

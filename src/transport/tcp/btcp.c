@@ -111,7 +111,12 @@ static void mb_btcp_accept_loop (void *arg)
             mb_sipc_set_on_error (sipc, mb_btcp_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
-            mb_sipc_start (sipc);
+            if (mb_sipc_start (sipc) < 0) {
+                mb_sipc_term (sipc);
+                mb_free (sipc);
+                mb_mutex_unlock (&self->lock);
+                continue;
+            }
             mb_list_insert (&self->sipcs, &sipc->item,
                 mb_list_end (&self->sipcs));
             mb_mutex_unlock (&self->lock);

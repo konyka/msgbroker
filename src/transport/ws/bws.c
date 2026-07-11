@@ -155,16 +155,56 @@ static size_t mb_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_ws_read_http (int fd, char *buf, size_t buflen, int timeout_ms)
+static int mb_ws_io_wait (int fd, short events, volatile int *running,
+    int *budget)
+{
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = events;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -1;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+static int mb_ws_read_http (int fd, char *buf, size_t buflen,
+    volatile int *running, int *budget)
 {
     size_t pos = 0;
+
     while (pos < buflen - 1) {
-        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
-        int rc = poll (&pfd, 1, timeout_ms);
-        if (rc <= 0)
+        ssize_t nr;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        nr = recv (fd, buf + pos, 1, 0);
+        if (nr < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (mb_ws_io_wait (fd, POLLIN, running, budget) < 0)
+                    return -1;
+                continue;
+            }
             return -1;
-        ssize_t nr = recv (fd, buf + pos, 1, 0);
-        if (nr <= 0)
+        }
+        if (nr == 0)
             return -1;
         pos += (size_t) nr;
         buf[pos] = '\0';
@@ -174,12 +214,27 @@ static int mb_ws_read_http (int fd, char *buf, size_t buflen, int timeout_ms)
     return -1;
 }
 
-static int mb_ws_write_http (int fd, const char *data, size_t len)
+static int mb_ws_write_http (int fd, const char *data, size_t len,
+    volatile int *running, int *budget)
 {
     size_t sent = 0;
+
     while (sent < len) {
-        ssize_t ns = send (fd, data + sent, len - sent, MSG_NOSIGNAL);
-        if (ns <= 0)
+        ssize_t ns;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        ns = send (fd, data + sent, len - sent, MSG_NOSIGNAL);
+        if (ns < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (mb_ws_io_wait (fd, POLLOUT, running, budget) < 0)
+                    return -1;
+                continue;
+            }
+            return -1;
+        }
+        if (ns == 0)
             return -1;
         sent += (size_t) ns;
     }
@@ -195,7 +250,7 @@ static char *mb_ws_find_header (const char *req, const char *name)
     return (char *) p;
 }
 
-static int mb_bws_do_handshake (int fd)
+static int mb_bws_do_handshake (int fd, volatile int *running, int timeout_ms)
 {
     char req[4096];
     char *key;
@@ -205,8 +260,9 @@ static int mb_bws_do_handshake (int fd)
     uint8_t hash[20];
     char hash_b64[32];
     char resp[512];
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
 
-    int reqlen = mb_ws_read_http (fd, req, sizeof (req), 5000);
+    int reqlen = mb_ws_read_http (fd, req, sizeof (req), running, &budget);
     if (reqlen < 0)
         return -1;
 
@@ -235,7 +291,7 @@ static int mb_bws_do_handshake (int fd)
         "Sec-WebSocket-Accept: %s\r\n"
         "\r\n", hash_b64);
 
-    return mb_ws_write_http (fd, resp, strlen (resp));
+    return mb_ws_write_http (fd, resp, strlen (resp), running, &budget);
 }
 
 static void mb_bws_accept_loop (void *arg)
@@ -274,13 +330,13 @@ static void mb_bws_accept_loop (void *arg)
                     &flag, sizeof (flag));
             }
 
-            if (mb_bws_do_handshake (client_fd) < 0) {
+            fcntl (client_fd, F_SETFL,
+                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
+
+            if (mb_bws_do_handshake (client_fd, &self->running, 5000) < 0) {
                 close (client_fd);
                 continue;
             }
-
-            fcntl (client_fd, F_SETFL,
-                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
 
             sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
             if (!sws) {
@@ -292,7 +348,12 @@ static void mb_bws_accept_loop (void *arg)
             mb_sws_set_on_error (sws, mb_bws_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
-            mb_sws_start (sws);
+            if (mb_sws_start (sws) < 0) {
+                mb_sws_term (sws);
+                mb_free (sws);
+                mb_mutex_unlock (&self->lock);
+                continue;
+            }
             mb_list_insert (&self->sws_list, &sws->item,
                 mb_list_end (&self->sws_list));
             mb_mutex_unlock (&self->lock);

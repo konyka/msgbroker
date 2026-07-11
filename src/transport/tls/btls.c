@@ -67,6 +67,64 @@ static void mb_btls_on_session_error (void *p)
     mb_mutex_unlock (&self->lock);
 }
 
+
+static int mb_btls_ssl_wait (SSL *ssl, int want, volatile int *running,
+    int *budget)
+{
+    int fd = SSL_get_fd (ssl);
+
+    while (*budget > 0) {
+        struct pollfd pfd;
+        int slice = *budget > 50 ? 50 : *budget;
+        int rc;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        pfd.fd = fd;
+        pfd.events = (want == SSL_ERROR_WANT_READ) ? POLLIN : POLLOUT;
+        pfd.revents = 0;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            return -errno;
+        }
+        if (rc == 0) {
+            *budget -= slice;
+            continue;
+        }
+        return 0;
+    }
+    return -ETIMEDOUT;
+}
+
+static int mb_btls_ssl_accept_while (SSL *ssl, volatile int *running,
+    int timeout_ms)
+{
+    int budget = timeout_ms > 0 ? timeout_ms : 5000;
+
+    for (;;) {
+        int rc;
+        int err;
+
+        if (running && !*running)
+            return -ECANCELED;
+
+        rc = SSL_accept (ssl);
+        if (rc == 1)
+            return 0;
+
+        err = SSL_get_error (ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            if (mb_btls_ssl_wait (ssl, err, running, &budget) < 0)
+                return -1;
+            continue;
+        }
+        return -1;
+    }
+}
+
 static void mb_btls_accept_loop (void *arg)
 {
     struct mb_btls *self = (struct mb_btls *) arg;
@@ -108,17 +166,17 @@ static void mb_btls_accept_loop (void *arg)
                 continue;
             }
 
+            fcntl (client_fd, F_SETFL,
+                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
+
             SSL_set_fd (ssl, client_fd);
             SSL_set_accept_state (ssl);
 
-            if (SSL_accept (ssl) <= 0) {
+            if (mb_btls_ssl_accept_while (ssl, &self->running, 5000) < 0) {
                 SSL_free (ssl);
                 close (client_fd);
                 continue;
             }
-
-            fcntl (client_fd, F_SETFL,
-                fcntl (client_fd, F_GETFL, 0) | O_NONBLOCK);
 
             stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
             if (!stls) {
@@ -131,7 +189,12 @@ static void mb_btls_accept_loop (void *arg)
             mb_stls_set_on_error (stls, mb_btls_on_session_error, self);
 
             mb_mutex_lock (&self->lock);
-            mb_stls_start (stls);
+            if (mb_stls_start (stls) < 0) {
+                mb_stls_term (stls);
+                mb_free (stls);
+                mb_mutex_unlock (&self->lock);
+                continue;
+            }
             mb_list_insert (&self->stlss, &stls->item,
                 mb_list_end (&self->stlss));
             mb_mutex_unlock (&self->lock);
