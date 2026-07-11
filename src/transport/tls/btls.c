@@ -75,6 +75,7 @@ static void mb_btls_accept_loop (void *arg)
 
             if (SSL_accept (ssl) <= 0) {
                 SSL_free (ssl);
+                close (client_fd);
                 continue;
             }
 
@@ -84,6 +85,7 @@ static void mb_btls_accept_loop (void *arg)
             stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
             if (!stls) {
                 SSL_free (ssl);
+                close (client_fd);
                 continue;
             }
 

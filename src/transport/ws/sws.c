@@ -71,6 +71,7 @@ static int mb_sws_send_raw (struct mb_sws *self, const void *buf, size_t len)
 {
     const uint8_t *ptr = (const uint8_t *) buf;
     size_t remaining = len;
+    size_t sent = 0;
 
     while (remaining > 0) {
         ssize_t ns;
@@ -79,29 +80,46 @@ static int mb_sws_send_raw (struct mb_sws *self, const void *buf, size_t len)
             if (ns <= 0) {
                 int err = SSL_get_error (self->ssl, (int) ns);
                 if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
-                    return -EAGAIN;
+                    return sent > 0 ? (int) sent : -EAGAIN;
                 return -ECONNRESET;
             }
         } else {
             ns = send (self->fd, ptr, remaining, MSG_NOSIGNAL);
             if (ns < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK)
-                    return -EAGAIN;
+                    return sent > 0 ? (int) sent : -EAGAIN;
                 return -errno;
             }
         }
         ptr += ns;
         remaining -= (size_t) ns;
+        sent += (size_t) ns;
+    }
+    return (int) sent;
+}
+
+static int mb_sws_send_all (struct mb_sws *self, const void *buf, size_t len)
+{
+    const uint8_t *ptr = (const uint8_t *) buf;
+    size_t pos = 0;
+
+    while (pos < len) {
+        int rc = mb_sws_send_raw (self, ptr + pos, len - pos);
+        if (rc < 0)
+            return rc;
+        pos += (size_t) rc;
     }
     return 0;
 }
 
-static int mb_sws_send_frame (struct mb_sws *self, int opcode,
-    const void *data, size_t len)
+static int mb_sws_build_frame (struct mb_sws *self, int opcode,
+    const void *data, size_t len, uint8_t **out_buf, size_t *out_len)
 {
     uint8_t hdr[MB_WS_MAX_HDR_SIZE];
     int hdrlen = 0;
-    int rc;
+    size_t total;
+    uint8_t *frame;
+    uint8_t mask[4];
 
     hdr[0] = MB_WS_FIN_BIT | (uint8_t) opcode;
 
@@ -130,7 +148,6 @@ static int mb_sws_send_frame (struct mb_sws *self, int opcode,
     }
 
     if (self->is_client) {
-        uint8_t mask[4];
         mask[0] = (uint8_t) (rand () & 0xFF);
         mask[1] = (uint8_t) (rand () & 0xFF);
         mask[2] = (uint8_t) (rand () & 0xFF);
@@ -139,32 +156,39 @@ static int mb_sws_send_frame (struct mb_sws *self, int opcode,
         hdr[hdrlen++] = mask[1];
         hdr[hdrlen++] = mask[2];
         hdr[hdrlen++] = mask[3];
-
-        rc = mb_sws_send_raw (self, hdr, (size_t) hdrlen);
-        if (rc < 0)
-            return rc;
-
-        if (len > 0) {
-            uint8_t *masked = (uint8_t *) mb_alloc (len);
-            if (!masked)
-                return -ENOMEM;
-            memcpy (masked, data, len);
-            mb_ws_mask (masked, len, mask);
-            rc = mb_sws_send_raw (self, masked, len);
-            mb_free (masked);
-            return rc;
-        }
-        return 0;
     }
 
-    rc = mb_sws_send_raw (self, hdr, (size_t) hdrlen);
+    total = (size_t) hdrlen + len;
+    frame = (uint8_t *) mb_alloc (total);
+    if (!frame)
+        return -ENOMEM;
+
+    memcpy (frame, hdr, (size_t) hdrlen);
+    if (len > 0) {
+        memcpy (frame + hdrlen, data, len);
+        if (self->is_client)
+            mb_ws_mask (frame + hdrlen, len, mask);
+    }
+
+    *out_buf = frame;
+    *out_len = total;
+    return 0;
+}
+
+static int mb_sws_send_frame (struct mb_sws *self, int opcode,
+    const void *data, size_t len)
+{
+    uint8_t *frame;
+    size_t frame_len;
+    int rc;
+
+    rc = mb_sws_build_frame (self, opcode, data, len, &frame, &frame_len);
     if (rc < 0)
         return rc;
 
-    if (len > 0)
-        return mb_sws_send_raw (self, data, len);
-
-    return 0;
+    rc = mb_sws_send_all (self, frame, frame_len);
+    mb_free (frame);
+    return rc;
 }
 
 static int mb_sws_send_pong (struct mb_sws *self, const void *data,
@@ -186,6 +210,9 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     self->instate = MB_SWS_INSTATE_HDR;
     self->payload_len = 0;
     self->payload_offset = 0;
+    self->outbuf = NULL;
+    self->outlen = 0;
+    self->outpos = 0;
     memset (self->mask_key, 0, 4);
     self->disconnected = 0;
     self->on_error = NULL;
@@ -220,6 +247,10 @@ void mb_sws_term (struct mb_sws *self)
     mb_msg_term (&self->inmsg);
     mb_list_item_term (&self->item);
     mb_pipebase_term (&self->pipebase);
+    if (self->outbuf) {
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+    }
     if (self->ssl) {
         SSL_shutdown (self->ssl);
         SSL_free (self->ssl);
@@ -240,6 +271,12 @@ void mb_sws_stop (struct mb_sws *self)
 {
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
+    if (self->outbuf) {
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+        self->outlen = 0;
+        self->outpos = 0;
+    }
     if (self->fd >= 0) {
         close (self->fd);
         self->fd = -1;
@@ -251,34 +288,49 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
     uint8_t hdr[4];
     size_t body_len;
-    size_t frame_len;
-    uint8_t *frame;
+    int rc;
 
-    body_len = mb_chunkref_size (&msg->body);
-    mb_wire_put_uint32 (hdr, (uint32_t) body_len);
+    if (!self->outbuf) {
+        uint8_t *payload;
+        size_t payload_len;
 
-    frame_len = 4 + body_len;
-    frame = (uint8_t *) mb_alloc (frame_len);
-    if (!frame)
-        return -ENOMEM;
+        body_len = mb_chunkref_size (&msg->body);
+        mb_wire_put_uint32 (hdr, (uint32_t) body_len);
+        payload_len = 4 + body_len;
+        payload = (uint8_t *) mb_alloc (payload_len);
+        if (!payload)
+            return -ENOMEM;
 
-    memcpy (frame, hdr, 4);
-    if (body_len > 0) {
-        void *body_data = mb_chunkref_data (&msg->body);
-        if (body_data)
-            memcpy (frame + 4, body_data, body_len);
+        memcpy (payload, hdr, 4);
+        if (body_len > 0) {
+            void *body_data = mb_chunkref_data (&msg->body);
+            if (body_data)
+                memcpy (payload + 4, body_data, body_len);
+        }
+
+        rc = mb_sws_build_frame (self, MB_WS_OPCODE_BINARY, payload,
+            payload_len, &self->outbuf, &self->outlen);
+        mb_free (payload);
+        if (rc < 0)
+            return rc;
+        self->outpos = 0;
     }
 
-    {
-        int rc = mb_sws_send_frame (self, MB_WS_OPCODE_BINARY, frame,
-            frame_len);
-        mb_free (frame);
+    while (self->outpos < self->outlen) {
+        rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
+            self->outlen - self->outpos);
         if (rc < 0) {
             if (rc != -EAGAIN)
                 mb_sws_report_error (self);
             return rc;
         }
+        self->outpos += (size_t) rc;
     }
+
+    mb_free (self->outbuf);
+    self->outbuf = NULL;
+    self->outlen = 0;
+    self->outpos = 0;
 
     mb_msg_term (msg);
     mb_msg_init (msg, 0);
@@ -395,6 +447,12 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 }
 
                 mb_msg_term (&self->inmsg);
+                /* payload = 4-byte length prefix + body; cap body at 1MB */
+                if (self->payload_len < 4 ||
+                    self->payload_len > 4 + 1024 * 1024) {
+                    mb_sws_report_error (self);
+                    return -EMSGSIZE;
+                }
                 mb_msg_init (&self->inmsg, (size_t) self->payload_len);
                 self->instate = MB_SWS_INSTATE_BODY;
                 self->inpos = 0;
@@ -474,19 +532,18 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
             if (self->payload_len < 4) {
                 mb_msg_term (&self->inmsg);
                 mb_msg_init (&self->inmsg, 0);
-                self->instate = MB_SWS_INSTATE_HDR;
-                self->inpos = 0;
-                continue;
+                mb_sws_report_error (self);
+                return -EPROTO;
             }
 
             {
                 uint32_t msg_len = mb_wire_get_uint32 (body);
-                if (msg_len > (uint32_t) (self->payload_len - 4)) {
+                if (msg_len > (uint32_t) (self->payload_len - 4) ||
+                    msg_len > 1024 * 1024) {
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);
-                    self->instate = MB_SWS_INSTATE_HDR;
-                    self->inpos = 0;
-                    continue;
+                    mb_sws_report_error (self);
+                    return -EMSGSIZE;
                 }
 
                 if (msg_len > 0) {

@@ -23,6 +23,9 @@ struct mb_sws {
     int payload_len;
     int payload_offset;
     uint8_t mask_key[4];
+    uint8_t *outbuf;
+    size_t outlen;
+    size_t outpos;
     struct ssl_st *ssl;
     int disconnected;
     void (*on_error) (void *arg);

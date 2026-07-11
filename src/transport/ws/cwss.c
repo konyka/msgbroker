@@ -219,6 +219,7 @@ static void mb_cwss_reconnect_loop (void *arg)
 
         if (mb_cwss_do_handshake (ssl, self->host, self->port) < 0) {
             SSL_free (ssl);
+            close (fd);
             mb_msleep_while (&self->running, current_ivl);
             if (ivl_max > 0 && current_ivl < ivl_max)
                 current_ivl *= 2;
@@ -232,6 +233,7 @@ static void mb_cwss_reconnect_loop (void *arg)
         sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
         if (!sws) {
             SSL_free (ssl);
+            close (fd);
             mb_msleep_while (&self->running, current_ivl);
             continue;
         }
@@ -279,6 +281,7 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     rc = mb_cwss_do_handshake (ssl, self->host, self->port);
     if (rc < 0) {
         SSL_free (ssl);
+        close (fd);
         return -ECONNREFUSED;
     }
 
@@ -287,6 +290,7 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
     if (!self->sws) {
         SSL_free (ssl);
+        close (fd);
         return -ENOMEM;
     }
 

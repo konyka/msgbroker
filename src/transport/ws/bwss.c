@@ -260,11 +260,13 @@ static void mb_bwss_accept_loop (void *arg)
 
             if (SSL_accept (ssl) <= 0) {
                 SSL_free (ssl);
+                close (client_fd);
                 continue;
             }
 
             if (mb_bwss_do_handshake (ssl, client_fd) < 0) {
                 SSL_free (ssl);
+                close (client_fd);
                 continue;
             }
 
@@ -274,6 +276,7 @@ static void mb_bwss_accept_loop (void *arg)
             sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
             if (!sws) {
                 SSL_free (ssl);
+                close (client_fd);
                 continue;
             }
 

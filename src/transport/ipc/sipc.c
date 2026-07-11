@@ -21,6 +21,10 @@
 #define MB_SIPC_INSTATE_BODY 2
 #define MB_SIPC_INSTATE_HASMSG 3
 
+#define MB_SIPC_OUTSTATE_IDLE 0
+#define MB_SIPC_OUTSTATE_HDR  1
+#define MB_SIPC_OUTSTATE_BODY 2
+
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg);
 
@@ -33,18 +37,20 @@ static int mb_sipc_send_fd (int fd, const void *buf, size_t len)
 {
     const uint8_t *ptr = (const uint8_t *) buf;
     size_t remaining = len;
+    size_t sent = 0;
 
     while (remaining > 0) {
         ssize_t ns = send (fd, ptr, remaining, MSG_NOSIGNAL);
         if (ns < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
-                return -EAGAIN;
+                return sent > 0 ? (int) sent : -EAGAIN;
             return -errno;
         }
         ptr += ns;
         remaining -= (size_t) ns;
+        sent += (size_t) ns;
     }
-    return 0;
+    return (int) sent;
 }
 
 static int mb_sipc_recv_fd (int fd, void *buf, size_t len)
@@ -77,6 +83,9 @@ int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
     self->inpos = 0;
     self->inlen = 0;
     self->instate = MB_SIPC_INSTATE_HDR;
+    self->outpos = 0;
+    self->outlen = 0;
+    self->outstate = MB_SIPC_OUTSTATE_IDLE;
     self->disconnected = 0;
     self->on_error = NULL;
     self->on_error_arg = NULL;
@@ -134,33 +143,52 @@ static void mb_sipc_report_error (struct mb_sipc *self)
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
-    uint8_t hdr[MB_SIPC_HDR_SIZE];
     int rc;
-    size_t body_size;
 
     if (self->fd < 0) {
         mb_sipc_report_error (self);
         return -ECONNRESET;
     }
 
-    body_size = mb_chunkref_size (&msg->body);
-    mb_wire_put_uint32 (hdr, (uint32_t) body_size);
-
-    rc = mb_sipc_send_fd (self->fd, hdr, MB_SIPC_HDR_SIZE);
-    if (rc < 0) {
-        if (rc != -EAGAIN)
-            mb_sipc_report_error (self);
-        return rc;
+    if (self->outstate == MB_SIPC_OUTSTATE_IDLE) {
+        self->outlen = (int) mb_chunkref_size (&msg->body);
+        mb_wire_put_uint32 (self->outhdr, (uint32_t) self->outlen);
+        self->outstate = MB_SIPC_OUTSTATE_HDR;
+        self->outpos = 0;
     }
 
-    if (body_size > 0) {
-        rc = mb_sipc_send_fd (self->fd, mb_chunkref_data (&msg->body),
-            body_size);
+    if (self->outstate == MB_SIPC_OUTSTATE_HDR) {
+        rc = mb_sipc_send_fd (self->fd, self->outhdr + self->outpos,
+            (size_t) (MB_SIPC_HDR_SIZE - self->outpos));
         if (rc < 0) {
             if (rc != -EAGAIN)
                 mb_sipc_report_error (self);
             return rc;
         }
+        self->outpos += rc;
+        if (self->outpos < MB_SIPC_HDR_SIZE)
+            return -EAGAIN;
+        self->outstate = MB_SIPC_OUTSTATE_BODY;
+        self->outpos = 0;
+    }
+
+    if (self->outstate == MB_SIPC_OUTSTATE_BODY) {
+        if (self->outlen > 0) {
+            rc = mb_sipc_send_fd (self->fd,
+                (uint8_t *) mb_chunkref_data (&msg->body) + self->outpos,
+                (size_t) (self->outlen - self->outpos));
+            if (rc < 0) {
+                if (rc != -EAGAIN)
+                    mb_sipc_report_error (self);
+                return rc;
+            }
+            self->outpos += rc;
+            if (self->outpos < self->outlen)
+                return -EAGAIN;
+        }
+        self->outstate = MB_SIPC_OUTSTATE_IDLE;
+        self->outpos = 0;
+        self->outlen = 0;
     }
 
     mb_msg_term (msg);

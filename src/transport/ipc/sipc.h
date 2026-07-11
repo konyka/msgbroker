@@ -15,10 +15,14 @@ struct mb_sipc {
     struct mb_pipebase pipebase;
     struct mb_list_item item;
     uint8_t inhdr[MB_SIPC_HDR_SIZE];
+    uint8_t outhdr[MB_SIPC_HDR_SIZE];
     struct mb_msg inmsg;
     int inpos;
     int inlen;
     int instate;
+    int outpos;
+    int outlen;
+    int outstate;
     int disconnected;
     void (*on_error) (void *arg);
     void *on_error_arg;
