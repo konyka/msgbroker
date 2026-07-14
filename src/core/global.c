@@ -899,6 +899,11 @@ int mb_global_hold_socket (struct mb_sock **sockp, int s)
         mb_mutex_unlock (&g_self.lock);
         return -EBADF;
     }
+    if (__atomic_load_n (&g_self.socks[s]->flags, __ATOMIC_ACQUIRE) &
+        MB_SOCK_FLAG_STOPPING) {
+        mb_mutex_unlock (&g_self.lock);
+        return -EBADF;
+    }
     *sockp = g_self.socks[s];
     mb_sock_hold (*sockp);
     mb_mutex_unlock (&g_self.lock);

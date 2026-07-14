@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-72 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-73 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1099,6 +1099,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>mb_ep_stop</b>: always invoke <code>ops.stop</code> so create_ep rollback joins accept/reconnect threads</li>
 <li>[x] <b>mb_ep_stopped_cb</b>: gate on atomic <code>MB_SOCK_FLAG_STOPPING</code></li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 73 — Pipe Rm During Stop &amp; Hold Rejects Stopping</h2>
+<span class="status done">DONE</span>
+<p>Teardown skipped <code>pipe_rm</code> under STOPPING (dangling pipe pointers); <code>mb_shutdown</code> still allowed new send/recv holds after claiming STOPPING.</p>
+<ul>
+<li>[x] <b>mb_sock_pipe_rm</b>: always unregister when sockbase is live (keep STOPPING reject only on add)</li>
+<li>[x] <b>mb_global_hold_socket</b>: return <code>-EBADF</code> when <code>MB_SOCK_FLAG_STOPPING</code> is set</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

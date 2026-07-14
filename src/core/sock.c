@@ -336,9 +336,8 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
 
 void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
 {
-    if (__atomic_load_n (&self->flags, __ATOMIC_ACQUIRE) &
-        MB_SOCK_FLAG_STOPPING)
-        return;
+    /* Always unregister: teardown sets STOPPING before ep_stop, and
+     * skipping rm leaves dangling pipe pointers in sockbase. */
     if (!self->sockbase)
         return;
     self->sockbase->vfptr->rm (self->sockbase, pipe);
