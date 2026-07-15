@@ -1,12 +1,14 @@
 #include "sinproc.h"
 #include "../../core/ep.h"
 #include "../../core/sock.h"
+#include "../../aio/ctx.h"
 #include "../../pal/efd.h"
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
 
 #include <string.h>
+#include <stdint.h>
 
 static int mb_sinproc_send (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_recv (struct mb_pipebase *self, struct mb_msg *msg);
@@ -42,13 +44,47 @@ void mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer)
 
 void mb_sinproc_stop (struct mb_sinproc *self)
 {
+    struct mb_sinproc *peer = self->peer;
+    struct mb_sock *sa;
+    struct mb_sock *sb;
+
+    if (!peer) {
+        if (self->pipebase.state == 2)
+            mb_pipebase_stop (&self->pipebase);
+        return;
+    }
+
+    /* Lock both socks in address order to avoid A↔B deadlock when both
+     * ends close concurrently. */
+    sa = self->pipebase.sock;
+    sb = peer->pipebase.sock;
+    if ((uintptr_t) sa < (uintptr_t) sb) {
+        mb_ctx_enter (&sa->ctx);
+        mb_ctx_enter (&sb->ctx);
+    } else if (sa != sb) {
+        mb_ctx_enter (&sb->ctx);
+        mb_ctx_enter (&sa->ctx);
+    } else {
+        mb_ctx_enter (&sa->ctx);
+    }
+
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
-    if (self->peer) {
-        if (self->peer->pipebase.state == 2)
-            mb_pipebase_stop (&self->peer->pipebase);
-        self->peer->peer = NULL;
-        self->peer = NULL;
+    if (peer->pipebase.state == 2)
+        mb_pipebase_stop (&peer->pipebase);
+    self->peer = NULL;
+    peer->peer = NULL;
+
+    if (sa != sb) {
+        if ((uintptr_t) sa < (uintptr_t) sb) {
+            mb_ctx_leave (&sb->ctx);
+            mb_ctx_leave (&sa->ctx);
+        } else {
+            mb_ctx_leave (&sa->ctx);
+            mb_ctx_leave (&sb->ctx);
+        }
+    } else {
+        mb_ctx_leave (&sa->ctx);
     }
 }
 

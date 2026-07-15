@@ -41,7 +41,33 @@ static int mb_xrep_add (struct mb_sockbase *self, struct mb_pipe *pipe)
 }
 
 static void mb_xrep_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
-{ (void) self; (void) pipe; }
+{
+    struct mb_xrep *xp = (struct mb_xrep *) self;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    for (it = mb_list_begin (&xp->fq.pipes); it != mb_list_end (&xp->fq.pipes);
+        it = next) {
+        struct mb_fq_data *data = (struct mb_fq_data *) it;
+        next = mb_list_next (&xp->fq.pipes, it);
+        if (data->pipe == pipe) {
+            mb_fq_rm (&xp->fq, data);
+            mb_free (data);
+            break;
+        }
+    }
+
+    for (it = mb_list_begin (&xp->lb.pipes); it != mb_list_end (&xp->lb.pipes);
+        it = next) {
+        struct mb_lb_data *data = (struct mb_lb_data *) it;
+        next = mb_list_next (&xp->lb.pipes, it);
+        if (data->pipe == pipe) {
+            mb_lb_rm (&xp->lb, data);
+            mb_free (data);
+            break;
+        }
+    }
+}
 
 static void mb_xrep_in (struct mb_sockbase *self, struct mb_pipe *pipe)
 { (void) self; (void) pipe; }

@@ -52,7 +52,34 @@ static int mb_rep_add (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static void mb_rep_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
 {
-    (void) self; (void) pipe;
+    struct mb_rep *rep = (struct mb_rep *) self;
+    struct mb_list_item *it;
+    struct mb_list_item *next;
+
+    if (rep->last_pipe == pipe)
+        rep->last_pipe = NULL;
+
+    for (it = mb_list_begin (&rep->fq.pipes); it != mb_list_end (&rep->fq.pipes);
+        it = next) {
+        struct mb_fq_data *data = (struct mb_fq_data *) it;
+        next = mb_list_next (&rep->fq.pipes, it);
+        if (data->pipe == pipe) {
+            mb_fq_rm (&rep->fq, data);
+            mb_free (data);
+            break;
+        }
+    }
+
+    for (it = mb_list_begin (&rep->lb.pipes); it != mb_list_end (&rep->lb.pipes);
+        it = next) {
+        struct mb_lb_data *data = (struct mb_lb_data *) it;
+        next = mb_list_next (&rep->lb.pipes, it);
+        if (data->pipe == pipe) {
+            mb_lb_rm (&rep->lb, data);
+            mb_free (data);
+            break;
+        }
+    }
 }
 
 static void mb_rep_in (struct mb_sockbase *self, struct mb_pipe *pipe)
