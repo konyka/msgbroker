@@ -77,15 +77,27 @@ int mb_net_connect_while (const char *host, uint16_t port, int *family,
     if (timeout_ms <= 0)
         timeout_ms = 5000;
 
+    if (running && !*running)
+        return -ECANCELED;
+
     memset (&hints, 0, sizeof (hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
     snprintf (port_str, sizeof (port_str), "%u", port);
 
+    /* Prefer numeric resolution (no DNS) so stop() is not blocked on
+     * getaddrinfo for IP literals; fall back to full lookup for names. */
+    hints.ai_flags = AI_NUMERICHOST;
     rc = getaddrinfo (host, port_str, &hints, &result);
-    if (rc != 0)
-        return -EADDRNOTAVAIL;
+    if (rc != 0) {
+        if (running && !*running)
+            return -ECANCELED;
+        hints.ai_flags = 0;
+        rc = getaddrinfo (host, port_str, &hints, &result);
+        if (rc != 0)
+            return -EADDRNOTAVAIL;
+    }
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         if (running && !*running) {

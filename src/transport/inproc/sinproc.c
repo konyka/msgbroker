@@ -95,11 +95,12 @@ static int mb_sinproc_send (struct mb_pipebase *base, struct mb_msg *msg)
     if (!self->peer)
         return -EAGAIN;
 
-    int was_empty = mb_msgqueue_empty (&self->peer->msgqueue);
+    /* push returns 1 when the queue was empty (wake peer); race-free under
+     * msgqueue mutex so we do not lose the rcvfd signal. */
     int rc = mb_msgqueue_push (&self->peer->msgqueue, msg);
-    if (rc >= 0 && was_empty)
+    if (rc > 0)
         mb_efd_signal (&self->peer->pipebase.sock->rcvfd);
-    return rc;
+    return rc < 0 ? rc : 0;
 }
 
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)

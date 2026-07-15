@@ -14,6 +14,7 @@ void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem)
     self->mem = 0;
     self->maxmem = maxmem;
     self->cache = NULL;
+    mb_mutex_init (&self->sync);
 }
 
 void mb_msgqueue_term (struct mb_msgqueue *self)
@@ -21,6 +22,8 @@ void mb_msgqueue_term (struct mb_msgqueue *self)
     struct mb_msgqueue_chunk *chunk;
     struct mb_msgqueue_chunk *next;
     int i;
+
+    mb_mutex_lock (&self->sync);
 
     if (self->cache) {
         mb_free (self->cache);
@@ -35,19 +38,37 @@ void mb_msgqueue_term (struct mb_msgqueue *self)
         mb_free (chunk);
         chunk = next;
     }
+    self->in.chunk = NULL;
+    self->out.chunk = NULL;
+    self->count = 0;
+
+    mb_mutex_unlock (&self->sync);
+    mb_mutex_term (&self->sync);
 }
 
 int mb_msgqueue_empty (struct mb_msgqueue *self)
 {
-    return self->count == 0;
+    int empty;
+
+    mb_mutex_lock (&self->sync);
+    empty = self->count == 0;
+    mb_mutex_unlock (&self->sync);
+    return empty;
 }
 
 int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
 {
     struct mb_msgqueue_chunk *chunk;
+    int was_empty;
 
-    if (self->maxmem > 0 && self->mem >= self->maxmem)
+    mb_mutex_lock (&self->sync);
+
+    if (self->maxmem > 0 && self->mem >= self->maxmem) {
+        mb_mutex_unlock (&self->sync);
         return -EAGAIN;
+    }
+
+    was_empty = (self->count == 0);
 
     if (!self->out.chunk) {
         if (self->cache) {
@@ -56,8 +77,10 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
         } else {
             chunk = (struct mb_msgqueue_chunk *)
                 mb_alloc (sizeof (struct mb_msgqueue_chunk));
-            if (!chunk)
+            if (!chunk) {
+                mb_mutex_unlock (&self->sync);
                 return -ENOMEM;
+            }
             memset (chunk->msgs, 0, sizeof (chunk->msgs));
         }
         chunk->next = NULL;
@@ -83,7 +106,8 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
                 mb_alloc (sizeof (struct mb_msgqueue_chunk));
             if (!chunk) {
                 self->out.pos = MB_MSGQUEUE_GRANULARITY;
-                return 0;
+                mb_mutex_unlock (&self->sync);
+                return was_empty ? 1 : 0;
             }
             memset (chunk->msgs, 0, sizeof (chunk->msgs));
         }
@@ -93,15 +117,20 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
         self->out.pos = 0;
     }
 
-    return 0;
+    mb_mutex_unlock (&self->sync);
+    return was_empty ? 1 : 0;
 }
 
 void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg)
 {
     struct mb_msgqueue_chunk *chunk;
 
-    if (self->count == 0)
+    mb_mutex_lock (&self->sync);
+
+    if (self->count == 0) {
+        mb_mutex_unlock (&self->sync);
         return;
+    }
 
     mb_msg_mv (msg, &self->in.chunk->msgs[self->in.pos]);
     --self->count;
@@ -118,4 +147,6 @@ void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg)
         else
             self->cache = chunk;
     }
+
+    mb_mutex_unlock (&self->sync);
 }

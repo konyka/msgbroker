@@ -41,8 +41,8 @@ static int mb_pair_add (struct mb_sockbase *self, struct mb_pipe *pipe)
 static void mb_pair_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
 {
     struct mb_pair *pair = (struct mb_pair *) self;
-    (void) pipe;
-    pair->pipe = NULL;
+    if (pair->pipe == pipe)
+        pair->pipe = NULL;
 }
 
 static void mb_pair_in (struct mb_sockbase *self, struct mb_pipe *pipe)
