@@ -62,8 +62,84 @@ int mb_net_connect (const char *host, uint16_t port, int *family)
     return mb_net_connect_while (host, port, family, NULL, 5000);
 }
 
+/* Nonblocking connect to one sockaddr; cancellable via *running. */
+static int mb_net_connect_sa (const struct sockaddr *sa, socklen_t salen,
+    int family, volatile int *running, int timeout_ms)
+{
+    int fd;
+    int rc;
+    int flag = 1;
+    int budget;
+
+    if (running && !*running)
+        return -ECANCELED;
+
+    fd = socket (family, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -errno;
+
+    setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof (flag));
+    fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
+
+    rc = connect (fd, sa, salen);
+    if (rc == 0)
+        return fd;
+    if (errno != EINPROGRESS) {
+        int err = -errno;
+        close (fd);
+        return err;
+    }
+
+    budget = timeout_ms;
+    while (budget > 0) {
+        struct pollfd pfd;
+        int slice = budget > 50 ? 50 : budget;
+        int soerr = 0;
+        socklen_t solen = sizeof (soerr);
+
+        if (running && !*running) {
+            close (fd);
+            return -ECANCELED;
+        }
+
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        rc = poll (&pfd, 1, slice);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            close (fd);
+            return -errno;
+        }
+        if (rc == 0) {
+            budget -= slice;
+            continue;
+        }
+
+        if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &soerr, &solen) < 0) {
+            close (fd);
+            return -errno;
+        }
+        if (soerr != 0) {
+            close (fd);
+            return -soerr;
+        }
+        return fd;
+    }
+
+    close (fd);
+    return -ETIMEDOUT;
+}
+
 int mb_net_connect_while (const char *host, uint16_t port, int *family,
     volatile int *running, int timeout_ms)
+{
+    return mb_net_connect_cached (host, port, family, running, timeout_ms,
+        NULL);
+}
+
+int mb_net_connect_cached (const char *host, uint16_t port, int *family,
+    volatile int *running, int timeout_ms, struct mb_net_epaddr *cache)
 {
     struct addrinfo hints;
     struct addrinfo *result;
@@ -71,14 +147,26 @@ int mb_net_connect_while (const char *host, uint16_t port, int *family,
     char port_str[8];
     int fd;
     int rc;
-    int flag = 1;
-    int budget;
 
     if (timeout_ms <= 0)
         timeout_ms = 5000;
 
     if (running && !*running)
         return -ECANCELED;
+
+    /* Reconnect hot path: skip DNS entirely when we already have an addr. */
+    if (cache && cache->ready) {
+        fd = mb_net_connect_sa ((struct sockaddr *) &cache->addr,
+            cache->addrlen, cache->family, running, timeout_ms);
+        if (fd >= 0) {
+            if (family)
+                *family = cache->family;
+            return fd;
+        }
+        if (fd == -ECANCELED)
+            return fd;
+        cache->ready = 0;
+    }
 
     memset (&hints, 0, sizeof (hints));
     hints.ai_family = AF_UNSPEC;
@@ -105,63 +193,21 @@ int mb_net_connect_while (const char *host, uint16_t port, int *family,
             return -ECANCELED;
         }
 
-        fd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        fd = mb_net_connect_sa (rp->ai_addr, rp->ai_addrlen, rp->ai_family,
+            running, timeout_ms);
+        if (fd == -ECANCELED) {
+            freeaddrinfo (result);
+            return fd;
+        }
         if (fd < 0)
             continue;
 
-        setsockopt (fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof (flag));
-        fcntl (fd, F_SETFL, fcntl (fd, F_GETFL, 0) | O_NONBLOCK);
-
-        rc = connect (fd, rp->ai_addr, rp->ai_addrlen);
-        if (rc == 0)
-            goto connected;
-        if (errno != EINPROGRESS) {
-            close (fd);
-            continue;
+        if (cache && rp->ai_addrlen <= sizeof (cache->addr)) {
+            memcpy (&cache->addr, rp->ai_addr, rp->ai_addrlen);
+            cache->addrlen = rp->ai_addrlen;
+            cache->family = rp->ai_family;
+            cache->ready = 1;
         }
-
-        budget = timeout_ms;
-        while (budget > 0) {
-            struct pollfd pfd;
-            int slice = budget > 50 ? 50 : budget;
-            int soerr = 0;
-            socklen_t solen = sizeof (soerr);
-
-            if (running && !*running) {
-                close (fd);
-                freeaddrinfo (result);
-                return -ECANCELED;
-            }
-
-            pfd.fd = fd;
-            pfd.events = POLLOUT;
-            rc = poll (&pfd, 1, slice);
-            if (rc < 0) {
-                if (errno == EINTR)
-                    continue;
-                close (fd);
-                fd = -1;
-                break;
-            }
-            if (rc == 0) {
-                budget -= slice;
-                continue;
-            }
-
-            if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &soerr, &solen) < 0 ||
-                soerr != 0) {
-                close (fd);
-                fd = -1;
-                break;
-            }
-            goto connected;
-        }
-
-        if (fd >= 0)
-            close (fd);
-        continue;
-
-connected:
         if (family)
             *family = rp->ai_family;
         freeaddrinfo (result);

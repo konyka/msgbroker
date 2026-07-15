@@ -142,8 +142,8 @@ static void mb_ctls_reconnect_loop (void *arg)
         SSL *ssl;
         struct mb_stls *stls;
 
-        fd = mb_net_connect_while (self->host, self->port, NULL,
-            &self->running, 5000);
+        fd = mb_net_connect_cached (self->host, self->port, NULL,
+            &self->running, 5000, &self->resolved);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -211,8 +211,8 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
     int fd;
     SSL *ssl;
 
-    fd = mb_net_connect_while (self->host, self->port, NULL,
-        &self->running, 5000);
+    fd = mb_net_connect_cached (self->host, self->port, NULL,
+        &self->running, 5000, &self->resolved);
     if (fd < 0)
         return fd;
 
@@ -254,6 +254,7 @@ int mb_ctls_create (struct mb_ep *ep)
     self->zombie = NULL;
     self->running = 1;
     self->reconnecting = 0;
+    self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
 

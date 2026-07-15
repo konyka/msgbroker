@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-76 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-77 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1145,6 +1145,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>mb_req_rm</b>: clear <code>sending</code>, reselect next pipe from <code>lb</code></li>
 <li>[x] <b>mb_req_events</b>: IN/OUT match send/recv FSM</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 77 — Cached Peer Resolve for Reconnect</h2>
+<span class="status done">DONE</span>
+<p>Hostname reconnect re-ran blocking <code>getaddrinfo</code> every attempt, stalling <code>stop</code>/join; numeric path alone was not enough for names.</p>
+<ul>
+<li>[x] <b>mb_net_connect_cached</b>: reuse resolved sockaddr; refresh only on miss/failure</li>
+<li>[x] <b>ctcp/ctls/cws/cwss</b>: keep <code>mb_net_epaddr</code> across reconnect loops</li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>

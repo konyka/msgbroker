@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "../../pal/thread.h"
 #include "../../pal/mutex.h"
+#include "../../utils/net.h"
 #include "sws.h"
 
 #include <stdint.h>
@@ -20,6 +21,7 @@ struct mb_cws {
     struct mb_mutex lock;
     char host[256];
     uint16_t port;
+    struct mb_net_epaddr resolved;
 };
 
 int mb_cws_create (struct mb_ep *ep);

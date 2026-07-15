@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "../../pal/thread.h"
 #include "../../pal/mutex.h"
+#include "../../utils/net.h"
 #include "../ipc/sipc.h"
 
 struct mb_ep;
@@ -18,6 +19,7 @@ struct mb_ctcp {
     struct mb_mutex lock;
     char host[256];
     uint16_t port;
+    struct mb_net_epaddr resolved;
 };
 
 int mb_ctcp_create (struct mb_ep *ep);

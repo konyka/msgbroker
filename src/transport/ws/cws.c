@@ -194,8 +194,8 @@ static void mb_cws_reconnect_loop (void *arg)
         int fd;
         struct mb_sws *sws;
 
-        fd = mb_net_connect_while (self->host, self->port, NULL,
-            &self->running, 5000);
+        fd = mb_net_connect_cached (self->host, self->port, NULL,
+            &self->running, 5000, &self->resolved);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -262,8 +262,8 @@ static int mb_cws_do_connect (struct mb_cws *self)
     int fd;
     int rc;
 
-    fd = mb_net_connect_while (self->host, self->port, NULL,
-        &self->running, 5000);
+    fd = mb_net_connect_cached (self->host, self->port, NULL,
+        &self->running, 5000, &self->resolved);
     if (fd < 0)
         return fd;
 
@@ -305,6 +305,7 @@ int mb_cws_create (struct mb_ep *ep)
     self->zombie = NULL;
     self->running = 1;
     self->reconnecting = 0;
+    self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
 

@@ -47,6 +47,7 @@ struct mb_cwss {
     struct mb_mutex lock;
     char host[256];
     uint16_t port;
+    struct mb_net_epaddr resolved;
 };
 
 static size_t mb_cwss_b64_encode (const uint8_t *src, size_t len, char *dst)
@@ -281,8 +282,8 @@ static void mb_cwss_reconnect_loop (void *arg)
         SSL *ssl;
         struct mb_sws *sws;
 
-        fd = mb_net_connect_while (self->host, self->port, NULL,
-            &self->running, 5000);
+        fd = mb_net_connect_cached (self->host, self->port, NULL,
+            &self->running, 5000, &self->resolved);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -366,8 +367,8 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     SSL *ssl;
     int rc;
 
-    fd = mb_net_connect_while (self->host, self->port, NULL,
-        &self->running, 5000);
+    fd = mb_net_connect_cached (self->host, self->port, NULL,
+        &self->running, 5000, &self->resolved);
     if (fd < 0)
         return fd;
 
@@ -418,6 +419,7 @@ int mb_cwss_create (struct mb_ep *ep)
     self->zombie = NULL;
     self->running = 1;
     self->reconnecting = 0;
+    self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
 

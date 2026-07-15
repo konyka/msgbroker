@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "../../pal/thread.h"
 #include "../../pal/mutex.h"
+#include "../../utils/net.h"
 #include "stls.h"
 
 #include <openssl/ssl.h>
@@ -21,6 +22,7 @@ struct mb_ctls {
     struct mb_mutex lock;
     char host[256];
     uint16_t port;
+    struct mb_net_epaddr resolved;
 };
 
 int mb_ctls_create (struct mb_ep *ep);
