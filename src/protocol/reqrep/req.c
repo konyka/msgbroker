@@ -52,10 +52,21 @@ static void mb_req_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
     if (data) {
         mb_lb_rm (&req->lb, data);
         mb_free (data);
+        mb_pipe_setdata (pipe, NULL);
     }
 
-    if (req->pipe == pipe)
+    if (req->pipe == pipe) {
+        struct mb_list_item *it;
+
+        /* Reply path died with the pipe; drop the half-open REQ FSM and
+         * fall back to another live peer if present. */
         req->pipe = NULL;
+        req->sending = 0;
+
+        it = mb_list_begin (&req->lb.pipes);
+        if (it != mb_list_end (&req->lb.pipes))
+            req->pipe = ((struct mb_lb_data *) it)->pipe;
+    }
 }
 
 static void mb_req_in (struct mb_sockbase *self, struct mb_pipe *pipe)
@@ -75,9 +86,9 @@ static int mb_req_events (struct mb_sockbase *self)
 {
     struct mb_req *req = (struct mb_req *) self;
     int ev = 0;
-    if (req->sending && req->pipe)
-        ev |= MB_SOCKBASE_EVENT_OUT;
     if (!req->sending && req->pipe)
+        ev |= MB_SOCKBASE_EVENT_OUT;
+    if (req->sending && req->pipe)
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
 }
