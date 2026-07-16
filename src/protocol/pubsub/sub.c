@@ -17,6 +17,7 @@ struct mb_sub {
     struct mb_fq fq;
     struct mb_trie subscriptions;
     int has_subscriptions;
+    int nsubs;
 };
 
 static void mb_sub_destroy (struct mb_sockbase *self)
@@ -111,13 +112,23 @@ static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
         if (!optval || optvallen == 0)
             return -EINVAL;
         rc = mb_trie_add (&sub->subscriptions, optval, optvallen);
-        if (rc == 0)
+        if (rc < 0)
+            return rc;
+        if (rc > 0) {
+            sub->nsubs++;
             sub->has_subscriptions = 1;
-        return rc;
+        }
+        return 0;
     case MB_SUB_UNSUBSCRIBE:
         if (!optval || optvallen == 0)
             return -EINVAL;
-        return mb_trie_rm (&sub->subscriptions, optval, optvallen);
+        rc = mb_trie_rm (&sub->subscriptions, optval, optvallen);
+        if (rc < 0)
+            return rc;
+        if (rc > 0 && sub->nsubs > 0)
+            sub->nsubs--;
+        sub->has_subscriptions = (sub->nsubs > 0);
+        return 0;
     default:
         return -ENOPROTOOPT;
     }
@@ -158,6 +169,7 @@ static int mb_sub_create (void *hint, struct mb_sockbase **sockbase)
     mb_fq_init (&sub->fq);
     mb_trie_init (&sub->subscriptions);
     sub->has_subscriptions = 0;
+    sub->nsubs = 0;
 
     *sockbase = &sub->base;
     return 0;

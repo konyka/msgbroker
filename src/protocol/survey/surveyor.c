@@ -4,11 +4,14 @@
 #include "../../utils/err.h"
 #include "../../utils/list.h"
 #include "../../memory/msg.h"
+#include "../../pal/clock.h"
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_survey.h>
 
 #include <errno.h>
+
+#define MB_SURVEYOR_DEFAULT_DEADLINE_MS 1000
 
 struct mb_surveyor_pipe_data {
     struct mb_list_item item;
@@ -20,7 +23,19 @@ struct mb_surveyor {
     struct mb_sockbase base;
     struct mb_list pipes;
     int surveying;
+    int deadline_ms;
+    uint64_t survey_expire_ms;
 };
+
+static void mb_surveyor_check_deadline (struct mb_surveyor *sv)
+{
+    if (!sv->surveying)
+        return;
+    if (sv->deadline_ms <= 0)
+        return;
+    if (mb_clock_ms () >= sv->survey_expire_ms)
+        sv->surveying = 0;
+}
 
 static void mb_surveyor_destroy (struct mb_sockbase *self)
 {
@@ -58,7 +73,12 @@ static void mb_surveyor_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
             mb_list_erase (&sv->pipes, &data->item);
         mb_list_item_term (&data->item);
         mb_free (data);
+        mb_pipe_setdata (pipe, NULL);
     }
+
+    /* No respondents left — abandon the open survey so send is not stuck. */
+    if (mb_list_empty (&sv->pipes))
+        sv->surveying = 0;
 }
 
 static void mb_surveyor_in (struct mb_sockbase *self, struct mb_pipe *pipe)
@@ -80,6 +100,8 @@ static int mb_surveyor_events (struct mb_sockbase *self)
     struct mb_surveyor *sv = (struct mb_surveyor *) self;
     int ev = 0;
     struct mb_list_item *it;
+
+    mb_surveyor_check_deadline (sv);
 
     if (!sv->surveying)
         ev |= MB_SOCKBASE_EVENT_OUT;
@@ -104,6 +126,8 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
     struct mb_surveyor *sv = (struct mb_surveyor *) self;
     struct mb_list_item *it;
 
+    mb_surveyor_check_deadline (sv);
+
     if (sv->surveying)
         return -EFSM;
 
@@ -121,6 +145,10 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
     }
 
     sv->surveying = 1;
+    if (sv->deadline_ms > 0)
+        sv->survey_expire_ms = mb_clock_ms () + (uint64_t) sv->deadline_ms;
+    else
+        sv->survey_expire_ms = 0;
     return 0;
 }
 
@@ -128,6 +156,8 @@ static int mb_surveyor_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_surveyor *sv = (struct mb_surveyor *) self;
     struct mb_list_item *it;
+
+    mb_surveyor_check_deadline (sv);
 
     if (!sv->surveying)
         return -EFSM;
@@ -150,16 +180,42 @@ static int mb_surveyor_recv (struct mb_sockbase *self, struct mb_msg *msg)
 static int mb_surveyor_setopt (struct mb_sockbase *self, int level,
     int option, const void *optval, size_t optvallen)
 {
-    (void) self; (void) level; (void) option;
-    (void) optval; (void) optvallen;
+    struct mb_surveyor *sv = (struct mb_surveyor *) self;
+
+    if (level != MB_SURVEYOR)
+        return -ENOPROTOOPT;
+
+    if (option == MB_SURVEYOR_DEADLINE) {
+        int ms;
+
+        if (!optval || optvallen != sizeof (int))
+            return -EINVAL;
+        ms = *((const int *) optval);
+        if (ms < 0)
+            return -EINVAL;
+        sv->deadline_ms = ms;
+        return 0;
+    }
+
     return -ENOPROTOOPT;
 }
 
 static int mb_surveyor_getopt (struct mb_sockbase *self, int level,
     int option, void *optval, size_t *optvallen)
 {
-    (void) self; (void) level; (void) option;
-    (void) optval; (void) optvallen;
+    struct mb_surveyor *sv = (struct mb_surveyor *) self;
+
+    if (level != MB_SURVEYOR)
+        return -ENOPROTOOPT;
+
+    if (option == MB_SURVEYOR_DEADLINE) {
+        if (!optval || !optvallen || *optvallen < sizeof (int))
+            return -EINVAL;
+        *((int *) optval) = sv->deadline_ms;
+        *optvallen = sizeof (int);
+        return 0;
+    }
+
     return -ENOPROTOOPT;
 }
 
@@ -189,6 +245,8 @@ static int mb_surveyor_create (void *hint, struct mb_sockbase **sockbase)
     mb_sockbase_init (&sv->base, &mb_surveyor_vfptr, NULL);
     mb_list_init (&sv->pipes);
     sv->surveying = 0;
+    sv->deadline_ms = MB_SURVEYOR_DEFAULT_DEADLINE_MS;
+    sv->survey_expire_ms = 0;
 
     *sockbase = &sv->base;
     return 0;

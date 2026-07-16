@@ -41,8 +41,10 @@ int mb_trie_add (struct mb_trie *self, const void *data, size_t len)
         n = n->children[bytes[i]];
     }
     n->refcount++;
+    if (n->subscribed)
+        return 0; /* already present */
     n->subscribed = 1;
-    return 0;
+    return 1; /* newly subscribed */
 }
 
 int mb_trie_rm (struct mb_trie *self, const void *data, size_t len)
@@ -58,7 +60,7 @@ int mb_trie_rm (struct mb_trie *self, const void *data, size_t len)
     if (!n->subscribed)
         return -1;
     n->subscribed = 0;
-    return 0;
+    return 1; /* removed */
 }
 
 int mb_trie_match (struct mb_trie *self, const void *data, size_t len)
