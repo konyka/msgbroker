@@ -456,8 +456,9 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
+    /* Best-effort: write backpressure must not block delivery of reads. */
     rc = mb_sws_flush_outbuf (self);
-    if (rc < 0)
+    if (rc < 0 && rc != -EAGAIN)
         return rc;
 
     if (!self->outbuf)

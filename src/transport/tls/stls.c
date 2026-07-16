@@ -263,8 +263,9 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
+    /* Best-effort: write backpressure must not block delivery of reads. */
     rc = mb_stls_flush_outbuf (self);
-    if (rc < 0)
+    if (rc < 0 && rc != -EAGAIN)
         return rc;
 
     if (self->instate == MB_STLS_INSTATE_HASMSG) {
