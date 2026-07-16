@@ -119,7 +119,9 @@ static int mb_rep_send (struct mb_sockbase *self, struct mb_msg *msg)
     if (!rep->last_pipe)
         return -EAGAIN;
     int rc = mb_pipe_send (rep->last_pipe, msg);
-    rep->last_pipe = NULL;
+    /* Keep last_pipe on -EAGAIN so mb_send can retry after backpressure. */
+    if (rc != -EAGAIN)
+        rep->last_pipe = NULL;
     return rc;
 }
 

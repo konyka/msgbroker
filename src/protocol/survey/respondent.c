@@ -130,7 +130,10 @@ static int mb_respondent_send (struct mb_sockbase *self, struct mb_msg *msg)
         return -EAGAIN;
 
     int rc = mb_pipe_send (resp->last_pipe, msg);
-    resp->last_pipe = NULL;
+    /* Keep last_pipe on -EAGAIN so mb_send can retry the same peer after
+     * transport backpressure; clear on success or hard error. */
+    if (rc != -EAGAIN)
+        resp->last_pipe = NULL;
     return rc;
 }
 
