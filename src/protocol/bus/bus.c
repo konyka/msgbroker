@@ -115,14 +115,25 @@ static int mb_bus_recv (struct mb_sockbase *self, struct mb_msg *msg)
     struct mb_bus *bus = (struct mb_bus *) self;
     struct mb_list_item *it;
 
-    for (it = mb_list_begin (&bus->pipes); it != mb_list_end (&bus->pipes);
-         it = mb_list_next (&bus->pipes, it)) {
+    /* Probe every pipe: IN callbacks are not always wired, so active is only
+     * a poll hint. Clear sticky active on EAGAIN; rotate on success. */
+    for (it = mb_list_begin (&bus->pipes); it != mb_list_end (&bus->pipes); ) {
         struct mb_bus_pipe_data *data = (struct mb_bus_pipe_data *) it;
+        struct mb_list_item *next = mb_list_next (&bus->pipes, it);
         int rc = mb_pipe_recv (data->pipe, msg);
-        if (rc == 0)
+
+        if (rc == 0) {
+            data->active = 1;
+            mb_list_erase (&bus->pipes, &data->item);
+            mb_list_insert (&bus->pipes, &data->item,
+                mb_list_end (&bus->pipes));
             return 0;
-        if (rc != -EAGAIN)
+        }
+        if (rc == -EAGAIN)
+            data->active = 0;
+        else
             return rc;
+        it = next;
     }
 
     return -EAGAIN;

@@ -172,15 +172,24 @@ static int mb_surveyor_recv (struct mb_sockbase *self, struct mb_msg *msg)
         return -EFSM;
 
     for (it = mb_list_begin (&sv->pipes);
-         it != mb_list_end (&sv->pipes);
-         it = mb_list_next (&sv->pipes, it)) {
+         it != mb_list_end (&sv->pipes); ) {
         struct mb_surveyor_pipe_data *data =
             (struct mb_surveyor_pipe_data *) it;
+        struct mb_list_item *next = mb_list_next (&sv->pipes, it);
         int rc = mb_pipe_recv (data->pipe, msg);
-        if (rc == 0)
+
+        if (rc == 0) {
+            data->active = 1;
+            mb_list_erase (&sv->pipes, &data->item);
+            mb_list_insert (&sv->pipes, &data->item,
+                mb_list_end (&sv->pipes));
             return 0;
-        if (rc != -EAGAIN)
+        }
+        if (rc == -EAGAIN)
+            data->active = 0;
+        else
             return rc;
+        it = next;
     }
 
     return -EAGAIN;
