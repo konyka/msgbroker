@@ -186,6 +186,30 @@ static void test_survey_fsm (void)
     printf ("  test_survey_fsm: PASSED\n");
 }
 
+/*  Survey with no respondents must not enter surveying FSM. */
+static void test_survey_send_no_peers (void)
+{
+    int sv;
+    int rc;
+
+    sv = mb_socket (AF_MB, MB_SURVEYOR);
+    assert (sv >= 0);
+
+    rc = mb_send (sv, "Q", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    /*  Still able to send once a peer appears (not stuck in surveying). */
+    rc = mb_send (sv, "Q", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_close (sv);
+    assert (rc == 0);
+
+    printf ("  test_survey_send_no_peers: PASSED\n");
+}
+
 int main (void)
 {
     printf ("PUB/SUB, BUS, Survey protocol tests:\n");
@@ -195,6 +219,7 @@ int main (void)
     test_bus_inproc ();
     test_survey_inproc ();
     test_survey_fsm ();
+    test_survey_send_no_peers ();
     printf ("All protocol tests passed.\n");
     return 0;
 }

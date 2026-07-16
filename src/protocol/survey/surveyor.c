@@ -125,6 +125,7 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_surveyor *sv = (struct mb_surveyor *) self;
     struct mb_list_item *it;
+    int sent = 0;
 
     mb_surveyor_check_deadline (sv);
 
@@ -137,12 +138,20 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
         struct mb_surveyor_pipe_data *data =
             (struct mb_surveyor_pipe_data *) it;
         struct mb_msg copy;
+        int rc;
+
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
-        int rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0)
+        rc = mb_pipe_send (data->pipe, &copy);
+        if (rc == 0)
+            sent++;
+        else
             mb_msg_term (&copy);
     }
+
+    /* Zero delivery must not enter surveying (would block OUT until deadline). */
+    if (sent == 0)
+        return -EAGAIN;
 
     sv->surveying = 1;
     if (sv->deadline_ms > 0)
