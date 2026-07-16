@@ -96,8 +96,10 @@ static int mb_rep_events (struct mb_sockbase *self)
 {
     struct mb_rep *rep = (struct mb_rep *) self;
     int ev = 0;
-    if (rep->last_pipe)
+    if (rep->last_pipe) {
         ev |= MB_SOCKBASE_EVENT_OUT;
+        return ev;
+    }
     if (mb_fq_can_recv (&rep->fq))
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
@@ -107,7 +109,13 @@ static int mb_rep_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_rep *rep = (struct mb_rep *) self;
     struct mb_pipe *pipe = NULL;
-    int rc = mb_fq_recv_pipe (&rep->fq, msg, &pipe);
+    int rc;
+
+    /* Must reply before accepting another request (preserves reply route). */
+    if (rep->last_pipe)
+        return -EFSM;
+
+    rc = mb_fq_recv_pipe (&rep->fq, msg, &pipe);
     if (rc == 0)
         rep->last_pipe = pipe;
     return rc;

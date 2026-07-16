@@ -84,8 +84,10 @@ static int mb_respondent_events (struct mb_sockbase *self)
     int ev = 0;
     struct mb_list_item *it;
 
-    if (resp->last_pipe)
+    if (resp->last_pipe) {
         ev |= MB_SOCKBASE_EVENT_OUT;
+        return ev;
+    }
 
     for (it = mb_list_begin (&resp->pipes);
          it != mb_list_end (&resp->pipes);
@@ -104,6 +106,10 @@ static int mb_respondent_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_respondent *resp = (struct mb_respondent *) self;
     struct mb_list_item *it;
+
+    /* Must reply before accepting another survey (preserves reply route). */
+    if (resp->last_pipe)
+        return -EFSM;
 
     for (it = mb_list_begin (&resp->pipes);
          it != mb_list_end (&resp->pipes);

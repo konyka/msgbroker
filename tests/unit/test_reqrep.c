@@ -121,12 +121,54 @@ static void test_reqrecv_before_send (void)
     printf ("  test_reqrecv_before_send: PASSED\n");
 }
 
+/*  REP state machine: cannot recv again before sending a reply. */
+static void test_reprecv_before_reply (void)
+{
+    int req, rep;
+    char buf[64];
+    int rc;
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "inproc://reqrep_rep_fsm");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://reqrep_rep_fsm");
+    assert (rc >= 0);
+
+    rc = mb_send (req, "REQ1", 4, 0);
+    assert (rc == 4);
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 4);
+
+    /*  Second recv before reply must not overwrite last_pipe. */
+    rc = mb_recv (rep, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EFSM);
+
+    rc = mb_send (rep, "REP1", 4, 0);
+    assert (rc == 4);
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc == 4);
+    assert (memcmp (buf, "REP1", 4) == 0);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_reprecv_before_reply: PASSED\n");
+}
+
 int main (void)
 {
     printf ("REQ/REP protocol tests:\n");
     test_reqrep_inproc ();
     test_reqrep_tcp ();
     test_reqrecv_before_send ();
+    test_reprecv_before_reply ();
     printf ("All REQ/REP tests passed.\n");
     return 0;
 }
