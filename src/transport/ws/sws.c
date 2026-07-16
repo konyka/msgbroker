@@ -331,11 +331,32 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
 
     if (!self->outbuf && self->pending_pong) {
         rc = mb_sws_flush_pending_pong (self);
-        if (rc < 0 && rc != -EAGAIN)
-            return rc;
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                return rc;
+            return -EAGAIN;
+        }
     }
 
-    if (!self->outbuf) {
+    /* Flush any previously accepted message before taking a new one. */
+    if (self->outbuf) {
+        while (self->outpos < self->outlen) {
+            rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
+                self->outlen - self->outpos);
+            if (rc < 0) {
+                if (rc != -EAGAIN)
+                    mb_sws_report_error (self);
+                return rc;
+            }
+            self->outpos += (size_t) rc;
+        }
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+        self->outlen = 0;
+        self->outpos = 0;
+    }
+
+    {
         uint8_t *payload;
         size_t payload_len;
 
@@ -359,6 +380,10 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         if (rc < 0)
             return rc;
         self->outpos = 0;
+
+        /* Accepted: EAGAIN means pending wire flush, not "msg not taken". */
+        mb_msg_term (msg);
+        mb_msg_init (msg, 0);
     }
 
     while (self->outpos < self->outlen) {
@@ -367,6 +392,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         if (rc < 0) {
             if (rc != -EAGAIN)
                 mb_sws_report_error (self);
+            else
+                return 0;
             return rc;
         }
         self->outpos += (size_t) rc;
@@ -378,9 +405,6 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     self->outpos = 0;
 
     (void) mb_sws_flush_pending_pong (self);
-
-    mb_msg_term (msg);
-    mb_msg_init (msg, 0);
     return 0;
 }
 

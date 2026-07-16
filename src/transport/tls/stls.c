@@ -160,7 +160,25 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
-    if (!self->outbuf) {
+    /* Flush any previously accepted message before taking a new one. */
+    if (self->outbuf) {
+        while (self->outpos < self->outlen) {
+            rc = mb_stls_send_ssl (self->ssl, self->outbuf + self->outpos,
+                (size_t) (self->outlen - self->outpos));
+            if (rc < 0) {
+                if (rc != -EAGAIN)
+                    mb_stls_report_error (self);
+                return rc;
+            }
+            self->outpos += rc;
+        }
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+        self->outpos = 0;
+        self->outlen = 0;
+    }
+
+    {
         size_t body_size = mb_chunkref_size (&msg->body);
 
         self->outlen = (int) (MB_STLS_HDR_SIZE + body_size);
@@ -172,6 +190,10 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
             memcpy (self->outbuf + MB_STLS_HDR_SIZE,
                 mb_chunkref_data (&msg->body), body_size);
         self->outpos = 0;
+
+        /* Accepted: EAGAIN means pending wire flush, not "msg not taken". */
+        mb_msg_term (msg);
+        mb_msg_init (msg, 0);
     }
 
     while (self->outpos < self->outlen) {
@@ -180,6 +202,8 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
         if (rc < 0) {
             if (rc != -EAGAIN)
                 mb_stls_report_error (self);
+            else
+                return 0;
             return rc;
         }
         self->outpos += rc;
@@ -189,9 +213,6 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
-
-    mb_msg_term (msg);
-    mb_msg_init (msg, 0);
     return 0;
 }
 
