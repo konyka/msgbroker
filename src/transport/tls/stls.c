@@ -6,10 +6,12 @@
 #include "../../utils/err.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
+#include "../../pal/clock.h"
 
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <poll.h>
 
 #define MB_STLS_INSTATE_HDR  1
 #define MB_STLS_INSTATE_BODY 2
@@ -130,10 +132,73 @@ int mb_stls_start (struct mb_stls *self)
     return mb_pipebase_start (&self->pipebase);
 }
 
+static int mb_stls_flush_outbuf (struct mb_stls *self)
+{
+    int rc;
+
+    if (!self->outbuf)
+        return 0;
+    if (!self->ssl)
+        return -ECONNRESET;
+
+    while (self->outpos < self->outlen) {
+        rc = mb_stls_send_ssl (self->ssl, self->outbuf + self->outpos,
+            (size_t) (self->outlen - self->outpos));
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_stls_report_error (self);
+            return rc;
+        }
+        self->outpos += rc;
+    }
+    mb_free (self->outbuf);
+    self->outbuf = NULL;
+    self->outpos = 0;
+    self->outlen = 0;
+    return 0;
+}
+
+static void mb_stls_linger_flush (struct mb_stls *self)
+{
+    int linger;
+    int fd;
+    uint64_t deadline;
+    struct pollfd pfd;
+
+    if (!self->outbuf || !self->ssl)
+        return;
+
+    linger = self->pipebase.sock ? self->pipebase.sock->linger : 0;
+    if (linger <= 0)
+        return;
+
+    fd = SSL_get_fd (self->ssl);
+    if (fd < 0)
+        return;
+
+    deadline = mb_clock_ms () + (uint64_t) linger;
+    while (self->outbuf) {
+        int64_t left = (int64_t) deadline - (int64_t) mb_clock_ms ();
+        int rc;
+
+        if (left <= 0)
+            break;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        rc = poll (&pfd, 1, (int) left);
+        if (rc <= 0)
+            break;
+        rc = mb_stls_flush_outbuf (self);
+        if (rc != -EAGAIN)
+            break;
+    }
+}
+
 void mb_stls_stop (struct mb_stls *self)
 {
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
+    mb_stls_linger_flush (self);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
@@ -160,23 +225,9 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
-    /* Flush any previously accepted message before taking a new one. */
-    if (self->outbuf) {
-        while (self->outpos < self->outlen) {
-            rc = mb_stls_send_ssl (self->ssl, self->outbuf + self->outpos,
-                (size_t) (self->outlen - self->outpos));
-            if (rc < 0) {
-                if (rc != -EAGAIN)
-                    mb_stls_report_error (self);
-                return rc;
-            }
-            self->outpos += rc;
-        }
-        mb_free (self->outbuf);
-        self->outbuf = NULL;
-        self->outpos = 0;
-        self->outlen = 0;
-    }
+    rc = mb_stls_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     {
         size_t body_size = mb_chunkref_size (&msg->body);
@@ -196,24 +247,10 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
         mb_msg_init (msg, 0);
     }
 
-    while (self->outpos < self->outlen) {
-        rc = mb_stls_send_ssl (self->ssl, self->outbuf + self->outpos,
-            (size_t) (self->outlen - self->outpos));
-        if (rc < 0) {
-            if (rc != -EAGAIN)
-                mb_stls_report_error (self);
-            else
-                return 0;
-            return rc;
-        }
-        self->outpos += rc;
-    }
-
-    mb_free (self->outbuf);
-    self->outbuf = NULL;
-    self->outpos = 0;
-    self->outlen = 0;
-    return 0;
+    rc = mb_stls_flush_outbuf (self);
+    if (rc == -EAGAIN)
+        return 0;
+    return rc;
 }
 
 static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
@@ -225,6 +262,10 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_stls_report_error (self);
         return -ECONNRESET;
     }
+
+    rc = mb_stls_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     if (self->instate == MB_STLS_INSTATE_HASMSG) {
         mb_msg_mv (msg, &self->inmsg);

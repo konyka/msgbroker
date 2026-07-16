@@ -3,6 +3,7 @@
 #include "../../core/ep.h"
 #include "../../core/sock.h"
 #include "../../pal/efd.h"
+#include "../../pal/clock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
@@ -272,10 +273,73 @@ int mb_sws_start (struct mb_sws *self)
     return mb_pipebase_start (&self->pipebase);
 }
 
+static int mb_sws_flush_outbuf (struct mb_sws *self)
+{
+    int rc;
+
+    if (!self->outbuf)
+        return 0;
+    if (self->fd < 0 && !self->ssl)
+        return -ECONNRESET;
+
+    while (self->outpos < self->outlen) {
+        rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
+            self->outlen - self->outpos);
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_sws_report_error (self);
+            return rc;
+        }
+        self->outpos += (size_t) rc;
+    }
+    mb_free (self->outbuf);
+    self->outbuf = NULL;
+    self->outlen = 0;
+    self->outpos = 0;
+    return 0;
+}
+
+static void mb_sws_linger_flush (struct mb_sws *self)
+{
+    int linger;
+    int fd;
+    uint64_t deadline;
+    struct pollfd pfd;
+
+    if (!self->outbuf)
+        return;
+
+    linger = self->pipebase.sock ? self->pipebase.sock->linger : 0;
+    if (linger <= 0)
+        return;
+
+    fd = self->ssl ? SSL_get_fd (self->ssl) : self->fd;
+    if (fd < 0)
+        return;
+
+    deadline = mb_clock_ms () + (uint64_t) linger;
+    while (self->outbuf) {
+        int64_t left = (int64_t) deadline - (int64_t) mb_clock_ms ();
+        int rc;
+
+        if (left <= 0)
+            break;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        rc = poll (&pfd, 1, (int) left);
+        if (rc <= 0)
+            break;
+        rc = mb_sws_flush_outbuf (self);
+        if (rc != -EAGAIN)
+            break;
+    }
+}
+
 void mb_sws_stop (struct mb_sws *self)
 {
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
+    mb_sws_linger_flush (self);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
@@ -338,23 +402,9 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         }
     }
 
-    /* Flush any previously accepted message before taking a new one. */
-    if (self->outbuf) {
-        while (self->outpos < self->outlen) {
-            rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
-                self->outlen - self->outpos);
-            if (rc < 0) {
-                if (rc != -EAGAIN)
-                    mb_sws_report_error (self);
-                return rc;
-            }
-            self->outpos += (size_t) rc;
-        }
-        mb_free (self->outbuf);
-        self->outbuf = NULL;
-        self->outlen = 0;
-        self->outpos = 0;
-    }
+    rc = mb_sws_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     {
         uint8_t *payload;
@@ -386,23 +436,11 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         mb_msg_init (msg, 0);
     }
 
-    while (self->outpos < self->outlen) {
-        rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
-            self->outlen - self->outpos);
-        if (rc < 0) {
-            if (rc != -EAGAIN)
-                mb_sws_report_error (self);
-            else
-                return 0;
-            return rc;
-        }
-        self->outpos += (size_t) rc;
-    }
-
-    mb_free (self->outbuf);
-    self->outbuf = NULL;
-    self->outlen = 0;
-    self->outpos = 0;
+    rc = mb_sws_flush_outbuf (self);
+    if (rc == -EAGAIN)
+        return 0;
+    if (rc < 0)
+        return rc;
 
     (void) mb_sws_flush_pending_pong (self);
     return 0;
@@ -411,11 +449,16 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+    int rc;
 
     if (self->fd < 0 && !self->ssl) {
         mb_sws_report_error (self);
         return -ECONNRESET;
     }
+
+    rc = mb_sws_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     if (!self->outbuf)
         (void) mb_sws_flush_pending_pong (self);

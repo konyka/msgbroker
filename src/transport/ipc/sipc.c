@@ -6,6 +6,7 @@
 #include "../../utils/err.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
+#include "../../pal/clock.h"
 
 #include <errno.h>
 #include <string.h>
@@ -109,22 +110,6 @@ int mb_sipc_start (struct mb_sipc *self)
     return mb_pipebase_start (&self->pipebase);
 }
 
-void mb_sipc_stop (struct mb_sipc *self)
-{
-    if (self->pipebase.state == 2)
-        mb_pipebase_stop (&self->pipebase);
-    if (self->outbuf) {
-        mb_free (self->outbuf);
-        self->outbuf = NULL;
-        self->outpos = 0;
-        self->outlen = 0;
-    }
-    if (self->fd >= 0) {
-        close (self->fd);
-        self->fd = -1;
-    }
-}
-
 void mb_sipc_set_on_error (struct mb_sipc *self, void (*cb) (void *), void *arg)
 {
     self->on_error = cb;
@@ -146,6 +131,81 @@ static void mb_sipc_report_error (struct mb_sipc *self)
         cb (arg);
 }
 
+/* Non-blocking drain of accepted-but-not-fully-written outbuf. */
+static int mb_sipc_flush_outbuf (struct mb_sipc *self)
+{
+    int rc;
+
+    if (!self->outbuf)
+        return 0;
+    if (self->fd < 0)
+        return -ECONNRESET;
+
+    while (self->outpos < self->outlen) {
+        rc = mb_sipc_send_fd (self->fd, self->outbuf + self->outpos,
+            (size_t) (self->outlen - self->outpos));
+        if (rc < 0) {
+            if (rc != -EAGAIN)
+                mb_sipc_report_error (self);
+            return rc;
+        }
+        self->outpos += rc;
+    }
+    mb_free (self->outbuf);
+    self->outbuf = NULL;
+    self->outpos = 0;
+    self->outlen = 0;
+    return 0;
+}
+
+static void mb_sipc_linger_flush (struct mb_sipc *self)
+{
+    int linger;
+    uint64_t deadline;
+    struct pollfd pfd;
+
+    if (!self->outbuf || self->fd < 0)
+        return;
+
+    linger = self->pipebase.sock ? self->pipebase.sock->linger : 0;
+    if (linger <= 0)
+        return;
+
+    deadline = mb_clock_ms () + (uint64_t) linger;
+    while (self->outbuf) {
+        int64_t left = (int64_t) deadline - (int64_t) mb_clock_ms ();
+        int rc;
+
+        if (left <= 0)
+            break;
+        pfd.fd = self->fd;
+        pfd.events = POLLOUT;
+        rc = poll (&pfd, 1, (int) left);
+        if (rc <= 0)
+            break;
+        rc = mb_sipc_flush_outbuf (self);
+        if (rc != -EAGAIN)
+            break;
+    }
+}
+
+void mb_sipc_stop (struct mb_sipc *self)
+{
+    if (self->pipebase.state == 2)
+        mb_pipebase_stop (&self->pipebase);
+    mb_sipc_linger_flush (self);
+    if (self->outbuf) {
+        mb_free (self->outbuf);
+        self->outbuf = NULL;
+        self->outpos = 0;
+        self->outlen = 0;
+    }
+    if (self->fd >= 0) {
+        close (self->fd);
+        self->fd = -1;
+    }
+}
+
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
@@ -156,23 +216,9 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
-    /* Flush any previously accepted message before taking a new one. */
-    if (self->outbuf) {
-        while (self->outpos < self->outlen) {
-            rc = mb_sipc_send_fd (self->fd, self->outbuf + self->outpos,
-                (size_t) (self->outlen - self->outpos));
-            if (rc < 0) {
-                if (rc != -EAGAIN)
-                    mb_sipc_report_error (self);
-                return rc;
-            }
-            self->outpos += rc;
-        }
-        mb_free (self->outbuf);
-        self->outbuf = NULL;
-        self->outpos = 0;
-        self->outlen = 0;
-    }
+    rc = mb_sipc_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     {
         size_t body_size = mb_chunkref_size (&msg->body);
@@ -192,24 +238,10 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
         mb_msg_init (msg, 0);
     }
 
-    while (self->outpos < self->outlen) {
-        rc = mb_sipc_send_fd (self->fd, self->outbuf + self->outpos,
-            (size_t) (self->outlen - self->outpos));
-        if (rc < 0) {
-            if (rc != -EAGAIN)
-                mb_sipc_report_error (self);
-            else
-                return 0;
-            return rc;
-        }
-        self->outpos += rc;
-    }
-
-    mb_free (self->outbuf);
-    self->outbuf = NULL;
-    self->outpos = 0;
-    self->outlen = 0;
-    return 0;
+    rc = mb_sipc_flush_outbuf (self);
+    if (rc == -EAGAIN)
+        return 0;
+    return rc;
 }
 
 static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
@@ -223,6 +255,10 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_sipc_report_error (self);
         return -ECONNRESET;
     }
+
+    rc = mb_sipc_flush_outbuf (self);
+    if (rc < 0)
+        return rc;
 
     if (self->instate == MB_SIPC_INSTATE_HASMSG) {
         mb_msg_mv (msg, &self->inmsg);
