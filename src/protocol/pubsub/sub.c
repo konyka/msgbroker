@@ -81,21 +81,23 @@ static int mb_sub_recv (struct mb_sockbase *self, struct mb_msg *msg)
     struct mb_sub *sub = (struct mb_sub *) self;
     int rc;
 
-    rc = mb_fq_recv (&sub->fq, msg);
-    if (rc < 0)
-        return rc;
+    for (;;) {
+        rc = mb_fq_recv (&sub->fq, msg);
+        if (rc < 0)
+            return rc;
 
-    if (!sub->has_subscriptions)
-        return 0;
+        if (!sub->has_subscriptions)
+            return 0;
 
-    if (mb_trie_match (&sub->subscriptions,
-            mb_chunkref_data (&msg->body),
-            mb_chunkref_size (&msg->body)))
-        return 0;
+        if (mb_trie_match (&sub->subscriptions,
+                mb_chunkref_data (&msg->body),
+                mb_chunkref_size (&msg->body)))
+            return 0;
 
-    mb_msg_term (msg);
-    mb_msg_init (msg, 0);
-    return -EAGAIN;
+        /* Drop non-matching topic and keep scanning the fair-queue. */
+        mb_msg_term (msg);
+        mb_msg_init (msg, 0);
+    }
 }
 
 static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
