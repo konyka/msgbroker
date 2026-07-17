@@ -33,7 +33,17 @@ int main (void)
     assert (!mb_trie_match (&t, "foobar", 6));
     assert (mb_trie_match (&t, "bar", 3));
 
-    printf ("test_trie: PASSED\n");
+    /* Deep prefixes: term must free the whole subtree (not only root). */
+    mb_trie_add (&t, "sport:news/local", 16);
+    mb_trie_add (&t, "weather:forecast", 16);
     mb_trie_term (&t);
+
+    /* Re-init after term must work. */
+    mb_trie_init (&t);
+    mb_trie_add (&t, "ok", 2);
+    assert (mb_trie_match (&t, "ok", 2));
+    mb_trie_term (&t);
+
+    printf ("test_trie: PASSED\n");
     return 0;
 }

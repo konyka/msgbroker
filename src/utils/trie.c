@@ -23,9 +23,22 @@ void mb_trie_init (struct mb_trie *self)
     self->root = mb_trie_node_alloc ();
 }
 
+static void mb_trie_node_term (struct mb_trie_node *n)
+{
+    int i;
+
+    if (!n)
+        return;
+    for (i = 0; i < 256; ++i) {
+        if (n->children[i])
+            mb_trie_node_term (n->children[i]);
+    }
+    mb_free (n);
+}
+
 void mb_trie_term (struct mb_trie *self)
 {
-    mb_free (self->root);
+    mb_trie_node_term (self->root);
     self->root = NULL;
 }
 
