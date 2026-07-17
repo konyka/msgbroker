@@ -109,6 +109,36 @@ static void test_sub_filter_dontwait_skip (void)
     printf ("  test_sub_filter_dontwait_skip: PASSED\n");
 }
 
+/*  XSUB must be able to send subscription traffic upstream (not permanent EAGAIN). */
+static void test_xsub_send (void)
+{
+    int pub, sub;
+    int rc;
+    char submsg[8];
+
+    pub = mb_socket (AF_MB, MB_XPUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_XSUB);
+    assert (sub >= 0);
+
+    rc = mb_bind (pub, "inproc://xsub_send");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://xsub_send");
+    assert (rc >= 0);
+
+    usleep (50000);
+
+    submsg[0] = 1;
+    memcpy (submsg + 1, "sport", 5);
+    rc = mb_send (sub, submsg, 6, MB_DONTWAIT);
+    assert (rc == 6);
+
+    mb_close (sub);
+    mb_close (pub);
+
+    printf ("  test_xsub_send: PASSED\n");
+}
+
 int main (void)
 {
     printf ("PUB/SUB subscription tests:\n");
@@ -116,6 +146,7 @@ int main (void)
     test_sub_subscribe_unsubscribe ();
     test_sub_subscribe_recv ();
     test_sub_filter_dontwait_skip ();
+    test_xsub_send ();
 
     printf ("\nAll pubsub filter tests PASSED\n");
     return 0;

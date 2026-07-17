@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-94 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-95 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1333,6 +1333,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>mb_device</b>: treat <code>-EAGAIN</code> as idle; forward both directions; retry send under backpressure; exit on <code>STOPPING</code></li>
 <li>[x] test: threaded device bridges two PAIR endpoints</li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 95 — XSUB Fan-out Send for Subscriptions</h2>
+<span class="status done">DONE</span>
+<p>XSUB <code>send</code> was a permanent <code>-EAGAIN</code> stub, so subscription traffic could not go upstream and <code>mb_device</code> would spin forever retrying that send.</p>
+<ul>
+<li>[x] <b>xsub send</b>: best-effort fan-out across <code>fq.pipes</code> (like PUB/XPUB)</li>
+<li>[x] test: <code>test_xsub_send</code></li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>
