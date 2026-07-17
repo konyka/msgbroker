@@ -126,7 +126,9 @@ static int mb_surveyor_events (struct mb_sockbase *self)
 
     mb_surveyor_check_deadline (sv);
 
-    if (!sv->surveying)
+    /* OUT only when idle and at least one respondent exists (match XSURVEYOR). */
+    if (!sv->surveying &&
+        mb_list_begin (&sv->pipes) != mb_list_end (&sv->pipes))
         ev |= MB_SOCKBASE_EVENT_OUT;
 
     if (sv->surveying) {
