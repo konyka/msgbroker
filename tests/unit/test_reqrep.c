@@ -162,6 +162,72 @@ static void test_reprecv_before_reply (void)
     printf ("  test_reprecv_before_reply: PASSED\n");
 }
 
+/*  REQ with multiple REPs must round-robin requests. */
+static void test_req_lb_rotate (void)
+{
+    int req, rep1, rep2;
+    int rc;
+    int i;
+    int got1 = 0, got2 = 0;
+    char buf[64];
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep1 = mb_socket (AF_MB, MB_REP);
+    assert (rep1 >= 0);
+    rep2 = mb_socket (AF_MB, MB_REP);
+    assert (rep2 >= 0);
+
+    rc = mb_bind (rep1, "inproc://req_lb1");
+    assert (rc >= 0);
+    rc = mb_bind (rep2, "inproc://req_lb2");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://req_lb1");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://req_lb2");
+    assert (rc >= 0);
+
+    for (i = 0; i < 4; ++i) {
+        int which = 0;
+
+        rc = mb_send (req, "Q", 1, 0);
+        assert (rc == 1);
+
+        rc = mb_recv (rep1, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc == 1) {
+            which = 1;
+            got1++;
+            rc = mb_send (rep1, "A", 1, 0);
+            assert (rc == 1);
+        } else {
+            rc = mb_recv (rep2, buf, sizeof (buf), MB_DONTWAIT);
+            assert (rc == 1);
+            which = 2;
+            got2++;
+            rc = mb_send (rep2, "A", 1, 0);
+            assert (rc == 1);
+        }
+        (void) which;
+
+        rc = mb_recv (req, buf, sizeof (buf), 0);
+        assert (rc == 1);
+        assert (buf[0] == 'A');
+    }
+
+    assert (got1 >= 1);
+    assert (got2 >= 1);
+    assert (got1 + got2 == 4);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep1);
+    assert (rc == 0);
+    rc = mb_close (rep2);
+    assert (rc == 0);
+
+    printf ("  test_req_lb_rotate: PASSED\n");
+}
+
 /*  Raw XREQ/XREP must send and recv (not permanent EAGAIN stubs). */
 static void test_xreq_xrep_inproc (void)
 {
@@ -206,6 +272,7 @@ int main (void)
     test_reqrep_tcp ();
     test_reqrecv_before_send ();
     test_reprecv_before_reply ();
+    test_req_lb_rotate ();
     test_xreq_xrep_inproc ();
     printf ("All REQ/REP tests passed.\n");
     return 0;

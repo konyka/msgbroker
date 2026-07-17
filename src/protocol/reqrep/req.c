@@ -86,7 +86,7 @@ static int mb_req_events (struct mb_sockbase *self)
 {
     struct mb_req *req = (struct mb_req *) self;
     int ev = 0;
-    if (!req->sending && req->pipe)
+    if (!req->sending && mb_lb_can_send (&req->lb))
         ev |= MB_SOCKBASE_EVENT_OUT;
     if (req->sending && req->pipe)
         ev |= MB_SOCKBASE_EVENT_IN;
@@ -96,16 +96,26 @@ static int mb_req_events (struct mb_sockbase *self)
 static int mb_req_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_req *req = (struct mb_req *) self;
+    struct mb_list_item *it;
+    int rc;
 
     if (req->sending)
         return -EFSM;
-    if (!req->pipe)
-        return -EAGAIN;
 
-    int rc = mb_pipe_send (req->pipe, msg);
-    if (rc == 0)
-        req->sending = 1;
-    return rc;
+    /* Round-robin among REPs; remember the pipe that took the request so
+     * the matching reply is read from the same peer. */
+    rc = mb_lb_send (&req->lb, msg);
+    if (rc != 0)
+        return rc;
+
+    it = mb_list_begin (&req->lb.pipes);
+    if (it == mb_list_end (&req->lb.pipes))
+        return -EAGAIN;
+    while (mb_list_next (&req->lb.pipes, it) != mb_list_end (&req->lb.pipes))
+        it = mb_list_next (&req->lb.pipes, it);
+    req->pipe = ((struct mb_lb_data *) it)->pipe;
+    req->sending = 1;
+    return 0;
 }
 
 static int mb_req_recv (struct mb_sockbase *self, struct mb_msg *msg)
