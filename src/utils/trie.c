@@ -47,33 +47,62 @@ int mb_trie_add (struct mb_trie *self, const void *data, size_t len)
     struct mb_trie_node *n = self->root;
     const uint8_t *bytes = (const uint8_t *) data;
     size_t i;
+
+    /* Ensure the path exists, then reject duplicates without bumping refs. */
     for (i = 0; i < len; i++) {
         if (!n->children[bytes[i]])
             n->children[bytes[i]] = mb_trie_node_alloc ();
+        n = n->children[bytes[i]];
+    }
+    if (n->subscribed)
+        return 0;
+
+    n = self->root;
+    for (i = 0; i < len; i++) {
         n->refcount++;
         n = n->children[bytes[i]];
     }
     n->refcount++;
-    if (n->subscribed)
-        return 0; /* already present */
     n->subscribed = 1;
-    return 1; /* newly subscribed */
+    return 1;
+}
+
+static int mb_trie_rm_rec (struct mb_trie_node *n, const uint8_t *data,
+    size_t len)
+{
+    struct mb_trie_node *child;
+    int rc;
+
+    if (len == 0) {
+        if (!n->subscribed)
+            return -1;
+        n->subscribed = 0;
+        if (n->refcount > 0)
+            n->refcount--;
+        return 1;
+    }
+
+    child = n->children[data[0]];
+    if (!child)
+        return -1;
+
+    rc = mb_trie_rm_rec (child, data + 1, len - 1);
+    if (rc < 0)
+        return rc;
+
+    if (n->refcount > 0)
+        n->refcount--;
+
+    if (child->refcount == 0 && !child->subscribed) {
+        n->children[data[0]] = NULL;
+        mb_trie_node_term (child);
+    }
+    return 1;
 }
 
 int mb_trie_rm (struct mb_trie *self, const void *data, size_t len)
 {
-    struct mb_trie_node *n = self->root;
-    const uint8_t *bytes = (const uint8_t *) data;
-    size_t i;
-    for (i = 0; i < len; i++) {
-        if (!n->children[bytes[i]])
-            return -1;
-        n = n->children[bytes[i]];
-    }
-    if (!n->subscribed)
-        return -1;
-    n->subscribed = 0;
-    return 1; /* removed */
+    return mb_trie_rm_rec (self->root, (const uint8_t *) data, len);
 }
 
 int mb_trie_match (struct mb_trie *self, const void *data, size_t len)

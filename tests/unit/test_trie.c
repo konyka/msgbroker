@@ -33,8 +33,37 @@ int main (void)
     assert (!mb_trie_match (&t, "foobar", 6));
     assert (mb_trie_match (&t, "bar", 3));
 
+    /* Overlapping prefixes: rm shorter must not break longer. */
+    mb_trie_add (&t, "foo", 3);
+    mb_trie_add (&t, "foobar", 6);
+    mb_trie_rm (&t, "foo", 3);
+    assert (!mb_trie_match (&t, "foo", 3));
+    assert (!mb_trie_match (&t, "food", 4));
+    assert (mb_trie_match (&t, "foobar", 6));
+    mb_trie_rm (&t, "foobar", 6);
+    assert (!mb_trie_match (&t, "foobar", 6));
+    assert (mb_trie_match (&t, "bar", 3));
+
+    /* Duplicate subscribe must be a no-op (refcount must still prune). */
+    assert (mb_trie_add (&t, "dup", 3) == 1);
+    assert (mb_trie_add (&t, "dup", 3) == 0);
+    assert (mb_trie_rm (&t, "dup", 3) == 1);
+    assert (!mb_trie_match (&t, "dup", 3));
+    assert (mb_trie_rm (&t, "dup", 3) < 0);
+
+    /* Repeated add/rm should not leave dead nodes that break re-add. */
+    {
+        int i;
+        for (i = 0; i < 100; ++i) {
+            assert (mb_trie_add (&t, "sport:news/local", 16) == 1);
+            assert (mb_trie_rm (&t, "sport:news/local", 16) == 1);
+        }
+        assert (!mb_trie_match (&t, "sport:news/local", 16));
+        assert (mb_trie_add (&t, "sport:news/local", 16) == 1);
+        assert (mb_trie_match (&t, "sport:news/local", 16));
+    }
+
     /* Deep prefixes: term must free the whole subtree (not only root). */
-    mb_trie_add (&t, "sport:news/local", 16);
     mb_trie_add (&t, "weather:forecast", 16);
     mb_trie_term (&t);
 

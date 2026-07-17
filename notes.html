@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-109 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-110 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1507,6 +1507,18 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>trie term</b>: recursively free all child nodes</li>
 <li>[x] test: deep prefixes + re-init after term</li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 110 — Trie Unsubscribe Prunes Dead Nodes</h2>
+<span class="status done">DONE</span>
+<p><code>mb_trie_rm</code> only cleared <code>subscribed</code> and never decremented <code>refcount</code> or freed nodes, so long-lived SUB sockets leaked ~2KB per prefix byte on every subscribe/unsubscribe cycle. Duplicate subscribe also bumped refs before detecting the existing entry.</p>
+<ul>
+<li>[x] <b>trie add</b>: reject duplicates before bumping refcounts</li>
+<li>[x] <b>trie rm</b>: decrement path refs and prune unreferenced nodes</li>
+<li>[x] test: overlap prefixes, duplicate subscribe, 100× add/rm cycles</li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>
