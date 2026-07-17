@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-116 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-117 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1592,6 +1592,17 @@ li { margin: 5px 0; }
 <li>[x] <b>getsockopt SNDFD/RCVFD</b>: sync efd before returning (covers <code>mb_poll</code>)</li>
 <li>[x] <b>pipe add/rm</b>: also sync <code>rcvfd</code></li>
 <li>[x] test: <code>test_tcp_poll_polllin</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 117 — mb_poll Slice Re-sync for Stream Wake</h2>
+<span class="status done">DONE</span>
+<p>Phase 116 synced efd only at <code>mb_poll</code> entry. Stream transports never signal <code>rcvfd</code> when wire data arrives mid-wait, so a blocking <code>mb_poll</code> slept the full timeout (or forever with <code>timeout&lt;0</code>). inproc was fine because <code>sinproc</code> signals on push.</p>
+<ul>
+<li>[x] <b>mb_poll</b>: 50ms slice loop; rebuild poll set (re-sync via getsockopt) each slice</li>
+<li>[x] test: <code>test_tcp_poll_wake</code> (send after poll starts; wake &lt; 800ms)</li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

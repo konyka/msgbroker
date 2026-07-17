@@ -3,9 +3,13 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
+
+#include "../../src/pal/thread.h"
+#include "../../src/pal/clock.h"
 
 #define TEST_PORT 18888
 
@@ -174,6 +178,81 @@ static void test_tcp_cross_transport (void)
     printf ("  test_tcp_cross_transport: PASSED\n");
 }
 
+struct tcp_poll_wake_args {
+    int fd;
+    int ok;
+    uint64_t elapsed_ms;
+};
+
+static void tcp_poll_wake_thread (void *arg)
+{
+    struct tcp_poll_wake_args *a = (struct tcp_poll_wake_args *) arg;
+    struct mb_pollfd fds[1];
+    uint64_t t0;
+    int rc;
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = a->fd;
+    fds[0].events = MB_POLLIN;
+    t0 = mb_clock_ms ();
+    rc = mb_poll (fds, 1, 3000);
+    a->elapsed_ms = mb_clock_ms () - t0;
+    a->ok = (rc >= 1 && (fds[0].revents & MB_POLLIN));
+}
+
+/*  Blocking mb_poll must wake soon after TCP data arrives mid-wait. */
+static void test_tcp_poll_wake (void)
+{
+    int s1, s2;
+    int rc;
+    char buf[64];
+    struct mb_thread thr;
+    struct tcp_poll_wake_args args;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18892");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18892");
+    assert (rc >= 0);
+    usleep (100000);
+
+    args.fd = s1;
+    args.ok = 0;
+    args.elapsed_ms = 0;
+    mb_thread_init (&thr);
+    rc = mb_thread_start (&thr, tcp_poll_wake_thread, &args);
+    assert (rc == 0);
+
+    /* Enter the poller's blocking wait before data is sent. */
+    usleep (200000);
+
+    rc = mb_send (s2, "WAKE", 4, 0);
+    assert (rc == 4);
+
+    mb_thread_join (&thr);
+    mb_thread_term (&thr);
+
+    assert (args.ok);
+    /* Slice re-sync (~50ms) must beat the full 3000ms timeout. */
+    assert (args.elapsed_ms < 800);
+
+    rc = mb_recv (s1, buf, sizeof (buf), 0);
+    assert (rc == 4);
+    assert (memcmp (buf, "WAKE", 4) == 0);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+
+    printf ("  test_tcp_poll_wake: PASSED\n");
+}
+
 /*  mb_poll(POLLIN) must see TCP data without a prior mb_recv. */
 static void test_tcp_poll_polllin (void)
 {
@@ -237,6 +316,7 @@ int main (void)
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();
+    test_tcp_poll_wake ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }
