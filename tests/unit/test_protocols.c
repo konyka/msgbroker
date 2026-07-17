@@ -9,6 +9,7 @@
 #include <msgbroker/mb_bus.h>
 #include <msgbroker/mb_survey.h>
 #include <msgbroker/mb_pair.h>
+#include <msgbroker/mb_pipeline.h>
 
 /*  PUB->SUB via inproc: broadcast. */
 static void test_pubsub_inproc (void)
@@ -423,6 +424,82 @@ static void test_xrespondent_poll_no_peers (void)
     printf ("  test_xrespondent_poll_no_peers: PASSED\n");
 }
 
+/*  XPUB must clear sticky POLLOUT after last peer disconnects. */
+static void test_xpub_poll_no_peers (void)
+{
+    int pub, sub;
+    int rc;
+    struct mb_pollfd fds[1];
+
+    pub = mb_socket (AF_MB, MB_XPUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_XSUB);
+    assert (sub >= 0);
+
+    rc = mb_bind (pub, "inproc://xpub_poll");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://xpub_poll");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = pub;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_close (sub);
+    assert (rc == 0);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_close (pub);
+    assert (rc == 0);
+
+    printf ("  test_xpub_poll_no_peers: PASSED\n");
+}
+
+/*  XPUSH must clear sticky POLLOUT after last peer disconnects. */
+static void test_xpush_poll_no_peers (void)
+{
+    int push, pull;
+    int rc;
+    struct mb_pollfd fds[1];
+
+    push = mb_socket (AF_MB, MB_XPUSH);
+    assert (push >= 0);
+    pull = mb_socket (AF_MB, MB_XPULL);
+    assert (pull >= 0);
+
+    rc = mb_bind (pull, "inproc://xpush_poll");
+    assert (rc >= 0);
+    rc = mb_connect (push, "inproc://xpush_poll");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = push;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_close (pull);
+    assert (rc == 0);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_close (push);
+    assert (rc == 0);
+
+    printf ("  test_xpush_poll_no_peers: PASSED\n");
+}
+
 int main (void)
 {
     printf ("PUB/SUB, BUS, Survey protocol tests:\n");
@@ -441,6 +518,8 @@ int main (void)
     test_xbus_send_no_peers ();
     test_xsub_send_no_peers ();
     test_xrespondent_poll_no_peers ();
+    test_xpub_poll_no_peers ();
+    test_xpush_poll_no_peers ();
     printf ("All protocol tests passed.\n");
     return 0;
 }

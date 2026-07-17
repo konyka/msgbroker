@@ -52,8 +52,12 @@ static void mb_xpush_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xpush_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_OUT;
+    struct mb_xpush *xp = (struct mb_xpush *) self;
+    int ev = 0;
+
+    if (mb_lb_can_send (&xp->lb))
+        ev |= MB_SOCKBASE_EVENT_OUT;
+    return ev;
 }
 
 static int mb_xpush_send (struct mb_sockbase *self, struct mb_msg *msg)
