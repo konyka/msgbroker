@@ -91,6 +91,25 @@ static void test_reqrep_tcp (void)
     printf ("  test_reqrep_tcp: PASSED\n");
 }
 
+/*  REP state machine: cannot send before receiving a request. */
+static void test_rep_send_before_recv (void)
+{
+    int rep;
+    int rc;
+
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_send (rep, "X", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EFSM);
+
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_rep_send_before_recv: PASSED\n");
+}
+
 /*  REQ state machine: cannot recv before send. */
 static void test_reqrecv_before_send (void)
 {
@@ -270,6 +289,7 @@ int main (void)
     printf ("REQ/REP protocol tests:\n");
     test_reqrep_inproc ();
     test_reqrep_tcp ();
+    test_rep_send_before_recv ();
     test_reqrecv_before_send ();
     test_reprecv_before_reply ();
     test_req_lb_rotate ();

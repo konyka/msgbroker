@@ -188,6 +188,25 @@ static void test_survey_fsm (void)
     printf ("  test_survey_fsm: PASSED\n");
 }
 
+/*  Respondent cannot send before receiving a survey (EFSM). */
+static void test_respondent_send_before_recv (void)
+{
+    int rs;
+    int rc;
+
+    rs = mb_socket (AF_MB, MB_RESPONDENT);
+    assert (rs >= 0);
+
+    rc = mb_send (rs, "A", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EFSM);
+
+    rc = mb_close (rs);
+    assert (rc == 0);
+
+    printf ("  test_respondent_send_before_recv: PASSED\n");
+}
+
 /*  Late reply after deadline must not contaminate the next survey. */
 static void test_survey_deadline_stale_reply (void)
 {
@@ -387,6 +406,7 @@ int main (void)
     test_bus_inproc ();
     test_survey_inproc ();
     test_survey_fsm ();
+    test_respondent_send_before_recv ();
     test_survey_deadline_stale_reply ();
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();

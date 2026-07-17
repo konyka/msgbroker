@@ -141,7 +141,7 @@ static int mb_respondent_send (struct mb_sockbase *self, struct mb_msg *msg)
     struct mb_respondent *resp = (struct mb_respondent *) self;
 
     if (!resp->last_pipe)
-        return -EAGAIN;
+        return -EFSM;
 
     int rc = mb_pipe_send (resp->last_pipe, msg);
     /* Keep last_pipe on -EAGAIN so mb_send can retry the same peer after
