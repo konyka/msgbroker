@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-115 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-116 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1579,6 +1579,19 @@ li { margin: 5px 0; }
 <li>[x] <b>fq_can_recv / events IN</b>: real pending messages, not sticky active/pipe existence</li>
 <li>[x] <b>sock send/recv</b>: <code>mb_sock_sync_rcvfd</code> from <code>EVENT_IN</code></li>
 <li>[x] test: <code>test_rep_poll_pollin_after_reply</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 116 — Stream Transport has_msg + Poll-time efd Sync</h2>
+<span class="status done">DONE</span>
+<p>TCP/IPC/TLS/WS <code>has_msg</code> stubs always returned 0, and <code>rcvfd</code> was only synced after send/recv — never before <code>mb_poll</code>. Event-driven apps on stream transports never saw <code>MB_POLLIN</code> despite data in the kernel buffer.</p>
+<ul>
+<li>[x] <b>sipc/stls/sws has_msg</b>: HASMSG state, <code>SSL_pending</code>, or non-blocking <code>poll(POLLIN)</code></li>
+<li>[x] <b>getsockopt SNDFD/RCVFD</b>: sync efd before returning (covers <code>mb_poll</code>)</li>
+<li>[x] <b>pipe add/rm</b>: also sync <code>rcvfd</code></li>
+<li>[x] test: <code>test_tcp_poll_polllin</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

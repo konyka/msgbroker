@@ -39,8 +39,21 @@ static const struct mb_pipebase_vfptr mb_sws_vfptr = {
 
 static int mb_sws_has_msg (struct mb_pipebase *base)
 {
-    (void) base;
-    return 0;
+    struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+    struct pollfd pfd;
+    int rc;
+
+    if (self->instate == MB_SWS_INSTATE_HASMSG)
+        return 1;
+    if (self->fd < 0 || self->disconnected)
+        return 0;
+    if (self->ssl && SSL_pending (self->ssl) > 0)
+        return 1;
+
+    pfd.fd = self->fd;
+    pfd.events = POLLIN;
+    rc = poll (&pfd, 1, 0);
+    return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
 }
 
 static void mb_ws_mask (uint8_t *data, size_t len, const uint8_t *key)

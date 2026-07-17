@@ -292,8 +292,15 @@ void mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         case MB_LINGER:            val = self->linger; break;
         case MB_DOMAIN:            val = self->socktype->domain; break;
         case MB_PROTOCOL:          val = self->socktype->protocol; break;
-        case MB_SNDFD:             val = mb_efd_getfd (&self->sndfd); break;
-        case MB_RCVFD:             val = mb_efd_getfd (&self->rcvfd); break;
+        case MB_SNDFD:
+            /* Refresh before exposing fd — mb_poll builds its set via getsockopt. */
+            mb_sock_sync_sndfd (self);
+            val = mb_efd_getfd (&self->sndfd);
+            break;
+        case MB_RCVFD:
+            mb_sock_sync_rcvfd (self);
+            val = mb_efd_getfd (&self->rcvfd);
+            break;
         case MB_SOCKET_NAME:
             if (*optvallen >= sizeof (self->socket_name)) {
                 memcpy (optval, self->socket_name, sizeof (self->socket_name));
@@ -374,8 +381,10 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
     if (!self->sockbase)
         return -EBADF;
     rc = self->sockbase->vfptr->add (self->sockbase, pipe);
-    if (rc == 0)
+    if (rc == 0) {
         mb_sock_sync_sndfd (self);
+        mb_sock_sync_rcvfd (self);
+    }
     return rc;
 }
 
@@ -387,6 +396,7 @@ void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
         return;
     self->sockbase->vfptr->rm (self->sockbase, pipe);
     mb_sock_sync_sndfd (self);
+    mb_sock_sync_rcvfd (self);
 }
 
 void mb_sock_stat_increment (struct mb_sock *self, int name, int increment)

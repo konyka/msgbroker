@@ -34,8 +34,19 @@ static const struct mb_pipebase_vfptr mb_sipc_vfptr = {
 
 static int mb_sipc_has_msg (struct mb_pipebase *base)
 {
-    (void) base;
-    return 0;
+    struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
+    struct pollfd pfd;
+    int rc;
+
+    if (self->instate == MB_SIPC_INSTATE_HASMSG)
+        return 1;
+    if (self->fd < 0 || self->disconnected)
+        return 0;
+
+    pfd.fd = self->fd;
+    pfd.events = POLLIN;
+    rc = poll (&pfd, 1, 0);
+    return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
 }
 
 static int mb_sipc_send_fd (int fd, const void *buf, size_t len)

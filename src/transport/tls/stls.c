@@ -29,8 +29,25 @@ static const struct mb_pipebase_vfptr mb_stls_vfptr = {
 
 static int mb_stls_has_msg (struct mb_pipebase *base)
 {
-    (void) base;
-    return 0;
+    struct mb_stls *self = mb_cont (base, struct mb_stls, pipebase);
+    struct pollfd pfd;
+    int fd;
+    int rc;
+
+    if (self->instate == MB_STLS_INSTATE_HASMSG)
+        return 1;
+    if (!self->ssl || self->disconnected)
+        return 0;
+    if (SSL_pending (self->ssl) > 0)
+        return 1;
+
+    fd = SSL_get_fd (self->ssl);
+    if (fd < 0)
+        return 0;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    rc = poll (&pfd, 1, 0);
+    return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
 }
 
 static int mb_stls_send_ssl (SSL *ssl, const void *buf, size_t len)
