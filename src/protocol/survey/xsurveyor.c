@@ -70,24 +70,38 @@ static void mb_xsurveyor_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xsurveyor_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    struct mb_xsurveyor *xp = (struct mb_xsurveyor *) self;
+    int ev = 0;
+
+    if (mb_list_begin (&xp->pipes) != mb_list_end (&xp->pipes))
+        ev |= MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    return ev;
 }
 
 static int mb_xsurveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_xsurveyor *xp = (struct mb_xsurveyor *) self;
     struct mb_list_item *it;
+    int sent = 0;
+
     for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
          it = mb_list_next (&xp->pipes, it)) {
         struct mb_xsurveyor_pipe_data *data =
             (struct mb_xsurveyor_pipe_data *) it;
         struct mb_msg copy;
+        int rc;
+
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
-        int rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0) mb_msg_term (&copy);
+        rc = mb_pipe_send (data->pipe, &copy);
+        if (rc == 0)
+            sent++;
+        else
+            mb_msg_term (&copy);
     }
+    /* Match SURVEYOR: zero delivery is not success (caller must retry). */
+    if (sent == 0)
+        return -EAGAIN;
     return 0;
 }
 
