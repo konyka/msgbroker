@@ -23,6 +23,15 @@ static int mb_device_forward (struct mb_sock *from, struct mb_sock *to)
     }
 
     for (;;) {
+        /* Recv already holds a message; must not miss STOPPING here or
+         * mb_close waits forever on device socket holds. */
+        if ((__atomic_load_n (&from->flags, __ATOMIC_ACQUIRE) &
+                MB_SOCK_FLAG_STOPPING) ||
+            (__atomic_load_n (&to->flags, __ATOMIC_ACQUIRE) &
+                MB_SOCK_FLAG_STOPPING)) {
+            mb_msg_term (&msg);
+            return -EAGAIN;
+        }
         rc = mb_sock_send (to, &msg);
         if (rc == 0) {
             mb_msg_term (&msg);

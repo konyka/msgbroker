@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -20,7 +21,7 @@ static void device_thread (void *arg)
     (void) mb_device (a->s1, a->s2);
 }
 
-int main (void)
+static void test_device_forward (void)
 {
     int left, right, c, s;
     int rc;
@@ -78,6 +79,61 @@ int main (void)
     mb_thread_join (&thr);
     mb_thread_term (&thr);
 
-    printf ("test_device: PASSED\n");
+    printf ("  test_device_forward: PASSED\n");
+}
+
+/* Close must finish while device is stuck retrying send under EAGAIN. */
+static void test_device_close_under_send_backpressure (void)
+{
+    int left, right, c;
+    int rc;
+    struct mb_thread thr;
+    struct device_args args;
+
+    left = mb_socket (AF_MB, MB_PAIR);
+    assert (left >= 0);
+    right = mb_socket (AF_MB, MB_PAIR);
+    assert (right >= 0);
+
+    rc = mb_bind (left, "inproc://device_bp_left");
+    assert (rc >= 0);
+    rc = mb_bind (right, "inproc://device_bp_right");
+    assert (rc >= 0);
+
+    args.s1 = left;
+    args.s2 = right;
+    mb_thread_init (&thr);
+    rc = mb_thread_start (&thr, device_thread, &args);
+    assert (rc == 0);
+
+    c = mb_socket (AF_MB, MB_PAIR);
+    assert (c >= 0);
+    /* Only one side connected: device recv succeeds, send to right → EAGAIN. */
+    rc = mb_connect (c, "inproc://device_bp_left");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_send (c, "BLOCK", 5, 0);
+    assert (rc == 5);
+    /* Let the device thread enter the send-retry loop. */
+    usleep (100000);
+
+    alarm (3);
+    mb_close (c);
+    mb_close (left);
+    mb_close (right);
+    mb_thread_join (&thr);
+    mb_thread_term (&thr);
+    alarm (0);
+
+    printf ("  test_device_close_under_send_backpressure: PASSED\n");
+}
+
+int main (void)
+{
+    printf ("test_device:\n");
+    test_device_forward ();
+    test_device_close_under_send_backpressure ();
+    printf ("test_device: ALL PASSED\n");
     return 0;
 }
