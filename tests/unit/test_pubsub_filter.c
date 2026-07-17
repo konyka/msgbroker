@@ -109,6 +109,75 @@ static void test_sub_filter_dontwait_skip (void)
     printf ("  test_sub_filter_dontwait_skip: PASSED\n");
 }
 
+/*  With no subscriptions, SUB must drop all messages (not receive-all). */
+static void test_sub_no_subscribe_drops (void)
+{
+    int pub, sub;
+    int rc;
+    char buf[64];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_bind (pub, "inproc://sub_nosub");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://sub_nosub");
+    assert (rc >= 0);
+
+    usleep (50000);
+
+    rc = mb_send (pub, "ANY", 3, 0);
+    assert (rc == 3);
+
+    usleep (50000);
+
+    rc = mb_recv (sub, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    mb_close (sub);
+    mb_close (pub);
+
+    printf ("  test_sub_no_subscribe_drops: PASSED\n");
+}
+
+/*  Empty subscription string receives all topics. */
+static void test_sub_empty_subscribe_all (void)
+{
+    int pub, sub;
+    int rc;
+    char buf[64];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    assert (rc == 0);
+
+    rc = mb_bind (pub, "inproc://sub_empty");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://sub_empty");
+    assert (rc >= 0);
+
+    usleep (50000);
+
+    rc = mb_send (pub, "ANY", 3, 0);
+    assert (rc == 3);
+
+    rc = mb_recv (sub, buf, sizeof (buf), 0);
+    assert (rc == 3);
+    assert (memcmp (buf, "ANY", 3) == 0);
+
+    mb_close (sub);
+    mb_close (pub);
+
+    printf ("  test_sub_empty_subscribe_all: PASSED\n");
+}
+
 /*  XSUB must be able to send subscription traffic upstream (not permanent EAGAIN). */
 static void test_xsub_send (void)
 {
@@ -146,6 +215,8 @@ int main (void)
     test_sub_subscribe_unsubscribe ();
     test_sub_subscribe_recv ();
     test_sub_filter_dontwait_skip ();
+    test_sub_no_subscribe_drops ();
+    test_sub_empty_subscribe_all ();
     test_xsub_send ();
 
     printf ("\nAll pubsub filter tests PASSED\n");

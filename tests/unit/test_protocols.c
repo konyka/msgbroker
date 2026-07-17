@@ -27,6 +27,10 @@ static void test_pubsub_inproc (void)
     rc = mb_connect (sub, "inproc://pubsub1");
     assert (rc >= 0);
 
+    /* Empty subscription = receive all topics. */
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    assert (rc == 0);
+
     /*  PUB sends, SUB receives. */
     rc = mb_send (pub, "NEWS", 4, 0);
     assert (rc == 4);

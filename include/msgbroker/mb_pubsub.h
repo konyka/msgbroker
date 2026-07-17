@@ -15,6 +15,7 @@ extern "C" {
 #define MB_XPUB (MB_PROTO_PUBSUB * 16 + 8)
 #define MB_XSUB (MB_PROTO_PUBSUB * 16 + 9)
 
+/** Subscribe to a topic prefix; empty (len 0) means all topics. */
 #define MB_SUB_SUBSCRIBE   1
 #define MB_SUB_UNSUBSCRIBE 2
 

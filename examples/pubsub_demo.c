@@ -12,6 +12,9 @@ int main (void)
     mb_bind (pub, "tcp://127.0.0.1:9003");
     mb_connect (sub1, "tcp://127.0.0.1:9003");
     mb_connect (sub2, "tcp://127.0.0.1:9003");
+    /* Empty topic = subscribe to all (nanomsg semantics). */
+    mb_setsockopt (sub1, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    mb_setsockopt (sub2, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
     usleep (100000);
 
     mb_send (pub, "NEWS", 4, 0);

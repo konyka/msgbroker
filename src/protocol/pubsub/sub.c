@@ -86,15 +86,15 @@ static int mb_sub_recv (struct mb_sockbase *self, struct mb_msg *msg)
         if (rc < 0)
             return rc;
 
-        if (!sub->has_subscriptions)
-            return 0;
-
-        if (mb_trie_match (&sub->subscriptions,
+        /* No interest registered: drop (nanomsg/nng). Empty subscription
+         * (len 0) marks the trie root and matches all topics. */
+        if (sub->has_subscriptions &&
+            mb_trie_match (&sub->subscriptions,
                 mb_chunkref_data (&msg->body),
                 mb_chunkref_size (&msg->body)))
             return 0;
 
-        /* Drop non-matching topic and keep scanning the fair-queue. */
+        /* Drop unmatched / unsubscribed traffic and keep scanning. */
         mb_msg_term (msg);
         mb_msg_init (msg, 0);
     }
@@ -111,7 +111,8 @@ static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
 
     switch (option) {
     case MB_SUB_SUBSCRIBE:
-        if (!optval || optvallen == 0)
+        /* optvallen 0 = subscribe to all (prefix ""). */
+        if (optvallen > 0 && !optval)
             return -EINVAL;
         rc = mb_trie_add (&sub->subscriptions, optval, optvallen);
         if (rc < 0)
@@ -122,7 +123,7 @@ static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
         }
         return 0;
     case MB_SUB_UNSUBSCRIBE:
-        if (!optval || optvallen == 0)
+        if (optvallen > 0 && !optval)
             return -EINVAL;
         rc = mb_trie_rm (&sub->subscriptions, optval, optvallen);
         if (rc < 0)
