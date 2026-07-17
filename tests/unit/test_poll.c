@@ -46,6 +46,15 @@ int main (void)
     assert (rc == 5);
     assert (memcmp (buf, "HELLO", 5) == 0);
 
+    /* After draining, rcvfd must not stay sticky-ready. */
+    fds[0].revents = 0;
+    fds[0].events = MB_POLLIN;
+    fds[1].revents = 0;
+    fds[1].events = MB_POLLIN;
+    rc = mb_poll (fds, 2, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLIN));
+
     fds[0].revents = 0;
     fds[0].events = MB_POLLOUT;
     fds[1].revents = 0;

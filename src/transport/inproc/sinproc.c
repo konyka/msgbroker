@@ -111,5 +111,9 @@ static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         return -EAGAIN;
 
     mb_msgqueue_pop (&self->msgqueue, msg);
+    /* Clear sticky POLLIN; re-arm if concurrent push left more messages. */
+    mb_efd_unsignal (&self->pipebase.sock->rcvfd);
+    if (!mb_msgqueue_empty (&self->msgqueue))
+        mb_efd_signal (&self->pipebase.sock->rcvfd);
     return 0;
 }

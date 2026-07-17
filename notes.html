@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-96 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-97 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1357,6 +1357,17 @@ li { margin: 5px 0; }
 <li>[x] <b>xreq recv</b>: probe/rotate <code>lb.pipes</code></li>
 <li>[x] <b>xrespondent send</b>: round-robin pipe send</li>
 <li>[x] test: <code>test_xreq_xrep_inproc</code></li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 97 — Unsignal Inproc RCVFD After Drain</h2>
+<span class="status done">DONE</span>
+<p>Inproc signaled <code>rcvfd</code> on enqueue but never cleared it after the queue drained, so <code>mb_poll</code> kept reporting sticky <code>POLLIN</code>.</p>
+<ul>
+<li>[x] <b>sinproc recv</b>: <code>unsignal</code> after pop; re-<code>signal</code> if queue still non-empty</li>
+<li>[x] test: poll after drain reports no <code>POLLIN</code></li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>
