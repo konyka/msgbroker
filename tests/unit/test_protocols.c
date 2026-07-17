@@ -249,6 +249,25 @@ static void test_xpair_send_no_peers (void)
     printf ("  test_xpair_send_no_peers: PASSED\n");
 }
 
+/*  Cooked BUS must not report success when nothing was delivered. */
+static void test_bus_send_no_peers (void)
+{
+    int s;
+    int rc;
+
+    s = mb_socket (AF_MB, MB_BUS);
+    assert (s >= 0);
+
+    rc = mb_send (s, "B", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_close (s);
+    assert (rc == 0);
+
+    printf ("  test_bus_send_no_peers: PASSED\n");
+}
+
 /*  Raw XBUS must not report success when nothing was delivered. */
 static void test_xbus_send_no_peers (void)
 {
@@ -318,6 +337,7 @@ int main (void)
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();
     test_xpair_send_no_peers ();
+    test_bus_send_no_peers ();
     test_xbus_send_no_peers ();
     test_xrespondent_poll_no_peers ();
     printf ("All protocol tests passed.\n");
