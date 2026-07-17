@@ -10,6 +10,7 @@ set(MB_TEST_SOURCES
     unit/test_semaphore.c
     unit/test_list.c
     unit/test_queue.c
+    unit/test_msgqueue.c
     unit/test_hash.c
     unit/test_trie.c
     unit/test_wire.c

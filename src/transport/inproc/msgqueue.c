@@ -56,6 +56,23 @@ int mb_msgqueue_empty (struct mb_msgqueue *self)
     return empty;
 }
 
+static struct mb_msgqueue_chunk *mb_msgqueue_alloc_chunk (struct mb_msgqueue *self)
+{
+    struct mb_msgqueue_chunk *chunk;
+
+    if (self->cache) {
+        chunk = self->cache;
+        self->cache = NULL;
+        return chunk;
+    }
+    chunk = (struct mb_msgqueue_chunk *)
+        mb_alloc (sizeof (struct mb_msgqueue_chunk));
+    if (!chunk)
+        return NULL;
+    memset (chunk->msgs, 0, sizeof (chunk->msgs));
+    return chunk;
+}
+
 int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
 {
     struct mb_msgqueue_chunk *chunk;
@@ -70,26 +87,26 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
 
     was_empty = (self->count == 0);
 
-    if (!self->out.chunk) {
-        if (self->cache) {
-            chunk = self->cache;
-            self->cache = NULL;
-        } else {
-            chunk = (struct mb_msgqueue_chunk *)
-                mb_alloc (sizeof (struct mb_msgqueue_chunk));
-            if (!chunk) {
-                mb_mutex_unlock (&self->sync);
-                return -ENOMEM;
-            }
-            memset (chunk->msgs, 0, sizeof (chunk->msgs));
+    /* Need a writable slot: first chunk, or after a full chunk when the
+     * previous eager alloc failed (pos left at GRANULARITY). */
+    if (!self->out.chunk || self->out.pos == MB_MSGQUEUE_GRANULARITY) {
+        chunk = mb_msgqueue_alloc_chunk (self);
+        if (!chunk) {
+            mb_mutex_unlock (&self->sync);
+            return -ENOMEM;
         }
         chunk->next = NULL;
-        self->out.chunk = chunk;
-        self->out.pos = 0;
-        if (!self->in.chunk) {
-            self->in.chunk = chunk;
-            self->in.pos = 0;
+        if (!self->out.chunk) {
+            self->out.chunk = chunk;
+            if (!self->in.chunk) {
+                self->in.chunk = chunk;
+                self->in.pos = 0;
+            }
+        } else {
+            self->out.chunk->next = chunk;
+            self->out.chunk = chunk;
         }
+        self->out.pos = 0;
     }
 
     mb_msg_mv (&self->out.chunk->msgs[self->out.pos], msg);
@@ -97,24 +114,15 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
     ++self->count;
     self->mem += mb_chunkref_size (&self->out.chunk->msgs[self->out.pos - 1].body);
 
+    /* Eagerly prepare the next chunk; failure is OK — next push allocates. */
     if (self->out.pos == MB_MSGQUEUE_GRANULARITY) {
-        if (self->cache) {
-            chunk = self->cache;
-            self->cache = NULL;
-        } else {
-            chunk = (struct mb_msgqueue_chunk *)
-                mb_alloc (sizeof (struct mb_msgqueue_chunk));
-            if (!chunk) {
-                self->out.pos = MB_MSGQUEUE_GRANULARITY;
-                mb_mutex_unlock (&self->sync);
-                return was_empty ? 1 : 0;
-            }
-            memset (chunk->msgs, 0, sizeof (chunk->msgs));
+        chunk = mb_msgqueue_alloc_chunk (self);
+        if (chunk) {
+            chunk->next = NULL;
+            self->out.chunk->next = chunk;
+            self->out.chunk = chunk;
+            self->out.pos = 0;
         }
-        chunk->next = NULL;
-        self->out.chunk->next = chunk;
-        self->out.chunk = chunk;
-        self->out.pos = 0;
     }
 
     mb_mutex_unlock (&self->sync);
@@ -137,11 +145,20 @@ void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg)
     self->mem -= mb_chunkref_size (&msg->body);
     ++self->in.pos;
 
+    /* Advance past a fully consumed chunk:
+     * - intermediate chunk: always GRANULARITY slots
+     * - active out chunk: stop at the write cursor (out.pos)
+     * Never compare in.pos to out.pos across different chunks. */
     if (self->in.pos == MB_MSGQUEUE_GRANULARITY ||
-        (self->in.chunk != self->out.chunk && self->in.pos == self->out.pos)) {
+        (self->in.chunk == self->out.chunk &&
+         self->in.pos == self->out.pos)) {
         chunk = self->in.chunk;
         self->in.chunk = chunk->next;
         self->in.pos = 0;
+        if (chunk == self->out.chunk) {
+            self->out.chunk = NULL;
+            self->out.pos = 0;
+        }
         if (self->cache)
             mb_free (chunk);
         else
