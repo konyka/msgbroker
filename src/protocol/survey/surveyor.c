@@ -27,14 +27,37 @@ struct mb_surveyor {
     uint64_t survey_expire_ms;
 };
 
+/* Drop pending replies so a closed survey cannot contaminate the next one. */
+static void mb_surveyor_drain (struct mb_surveyor *sv)
+{
+    struct mb_list_item *it;
+
+    for (it = mb_list_begin (&sv->pipes); it != mb_list_end (&sv->pipes);
+         it = mb_list_next (&sv->pipes, it)) {
+        struct mb_surveyor_pipe_data *data =
+            (struct mb_surveyor_pipe_data *) it;
+        struct mb_msg junk;
+
+        for (;;) {
+            mb_msg_init (&junk, 0);
+            if (mb_pipe_recv (data->pipe, &junk) != 0)
+                break;
+            mb_msg_term (&junk);
+        }
+        data->active = 0;
+    }
+}
+
 static void mb_surveyor_check_deadline (struct mb_surveyor *sv)
 {
     if (!sv->surveying)
         return;
     if (sv->deadline_ms <= 0)
         return;
-    if (mb_clock_ms () >= sv->survey_expire_ms)
+    if (mb_clock_ms () >= sv->survey_expire_ms) {
         sv->surveying = 0;
+        mb_surveyor_drain (sv);
+    }
 }
 
 static void mb_surveyor_destroy (struct mb_sockbase *self)
@@ -131,6 +154,9 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
 
     if (sv->surveying)
         return -EFSM;
+
+    /* Flush late replies that arrived after the previous survey closed. */
+    mb_surveyor_drain (sv);
 
     for (it = mb_list_begin (&sv->pipes);
          it != mb_list_end (&sv->pipes);

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pubsub.h>
@@ -187,6 +188,58 @@ static void test_survey_fsm (void)
     printf ("  test_survey_fsm: PASSED\n");
 }
 
+/*  Late reply after deadline must not contaminate the next survey. */
+static void test_survey_deadline_stale_reply (void)
+{
+    int sv, rs;
+    int rc;
+    int deadline = 50;
+    char buf[64];
+
+    sv = mb_socket (AF_MB, MB_SURVEYOR);
+    assert (sv >= 0);
+    rs = mb_socket (AF_MB, MB_RESPONDENT);
+    assert (rs >= 0);
+
+    rc = mb_setsockopt (sv, MB_SURVEYOR, MB_SURVEYOR_DEADLINE,
+        &deadline, sizeof (deadline));
+    assert (rc == 0);
+
+    rc = mb_bind (sv, "inproc://survey_stale");
+    assert (rc >= 0);
+    rc = mb_connect (rs, "inproc://survey_stale");
+    assert (rc >= 0);
+
+    rc = mb_send (sv, "Q1", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (rs, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "Q1", 2) == 0);
+
+    usleep (80000); /* past deadline */
+    rc = mb_send (rs, "A1", 2, 0);
+    assert (rc == 2);
+
+    rc = mb_send (sv, "Q2", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (rs, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "Q2", 2) == 0);
+    rc = mb_send (rs, "A2", 2, 0);
+    assert (rc == 2);
+
+    rc = mb_recv (sv, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "A2", 2) == 0);
+
+    rc = mb_close (sv);
+    assert (rc == 0);
+    rc = mb_close (rs);
+    assert (rc == 0);
+
+    printf ("  test_survey_deadline_stale_reply: PASSED\n");
+}
+
 /*  Survey with no respondents must not enter surveying FSM. */
 static void test_survey_send_no_peers (void)
 {
@@ -334,6 +387,7 @@ int main (void)
     test_bus_inproc ();
     test_survey_inproc ();
     test_survey_fsm ();
+    test_survey_deadline_stale_reply ();
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();
     test_xpair_send_no_peers ();

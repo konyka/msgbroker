@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-104 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-105 complete. <b>49/49 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1450,6 +1450,17 @@ li { margin: 5px 0; }
 <li>[x] <b>bus send</b>: count deliveries; <code>sent==0 → -EAGAIN</code></li>
 <li>[x] <b>bus events</b>: advertise OUT only when pipes exist</li>
 <li>[x] test: <code>test_bus_send_no_peers</code></li>
+<li>[x] 49/49 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 105 — Drain Stale Survey Replies After Deadline</h2>
+<span class="status done">DONE</span>
+<p>When a survey deadline expired, <code>MB_SURVEYOR</code> cleared the FSM but left late replies queued on pipes, so the next survey could recv a stale answer from the previous round.</p>
+<ul>
+<li>[x] <b>surveyor</b>: drain pending replies on deadline expiry and before starting a new survey</li>
+<li>[x] test: <code>test_survey_deadline_stale_reply</code></li>
 <li>[x] 49/49 tests passing</li>
 </ul>
 </div>
