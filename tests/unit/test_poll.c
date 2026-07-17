@@ -55,6 +55,18 @@ int main (void)
     assert (rc >= 1);
     assert (fds[0].revents & MB_POLLOUT);
 
+    /* Same socket requesting IN|OUT must watch both efd fds. */
+    rc = mb_send (s1, "PING", 4, 0);
+    assert (rc == 4);
+    fds[0].revents = 0;
+    fds[0].events = MB_POLLIN | MB_POLLOUT;
+    fds[1].revents = 0;
+    fds[1].events = MB_POLLIN | MB_POLLOUT;
+    rc = mb_poll (fds, 2, 100);
+    assert (rc >= 1);
+    assert (fds[1].revents & MB_POLLIN);
+    assert (fds[0].revents & MB_POLLOUT);
+
     mb_close (s2);
     mb_close (s1);
 
