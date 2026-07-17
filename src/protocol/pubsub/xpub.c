@@ -93,12 +93,21 @@ static int mb_xpub_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_xpub *xp = (struct mb_xpub *) self;
     struct mb_list_item *it;
-    for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
-         it = mb_list_next (&xp->pipes, it)) {
+
+    for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes); ) {
         struct mb_xpub_pipe_data *data = (struct mb_xpub_pipe_data *) it;
+        struct mb_list_item *next = mb_list_next (&xp->pipes, it);
         int rc = mb_pipe_recv (data->pipe, msg);
-        if (rc == 0) return 0;
-        if (rc != -EAGAIN) return rc;
+
+        if (rc == 0) {
+            mb_list_erase (&xp->pipes, &data->item);
+            mb_list_insert (&xp->pipes, &data->item,
+                mb_list_end (&xp->pipes));
+            return 0;
+        }
+        if (rc != -EAGAIN)
+            return rc;
+        it = next;
     }
     return -EAGAIN;
 }
