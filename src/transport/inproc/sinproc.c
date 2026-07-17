@@ -12,10 +12,12 @@
 
 static int mb_sinproc_send (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_recv (struct mb_pipebase *self, struct mb_msg *msg);
+static int mb_sinproc_has_msg (struct mb_pipebase *self);
 
 static const struct mb_pipebase_vfptr mb_sinproc_vfptr = {
     mb_sinproc_send,
     mb_sinproc_recv,
+    mb_sinproc_has_msg,
 };
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)
@@ -103,6 +105,13 @@ static int mb_sinproc_send (struct mb_pipebase *base, struct mb_msg *msg)
     return rc < 0 ? rc : 0;
 }
 
+static int mb_sinproc_has_msg (struct mb_pipebase *base)
+{
+    struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
+
+    return !mb_msgqueue_empty (&self->msgqueue);
+}
+
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
 {
     struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
@@ -111,7 +120,8 @@ static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         return -EAGAIN;
 
     mb_msgqueue_pop (&self->msgqueue, msg);
-    /* Clear sticky POLLIN; re-arm if concurrent push left more messages. */
+    /* Clear sticky POLLIN; re-arm if concurrent push left more messages.
+     * Multi-pipe sockets re-arm via mb_sock_sync_rcvfd after send/recv. */
     mb_efd_unsignal (&self->pipebase.sock->rcvfd);
     if (!mb_msgqueue_empty (&self->msgqueue))
         mb_efd_signal (&self->pipebase.sock->rcvfd);

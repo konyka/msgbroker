@@ -88,7 +88,7 @@ static int mb_req_events (struct mb_sockbase *self)
     int ev = 0;
     if (!req->sending && mb_lb_can_send (&req->lb))
         ev |= MB_SOCKBASE_EVENT_OUT;
-    if (req->sending && req->pipe)
+    if (req->sending && req->pipe && mb_pipe_has_msg (req->pipe))
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
 }

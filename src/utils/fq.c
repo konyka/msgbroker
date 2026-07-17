@@ -49,10 +49,11 @@ int mb_fq_can_recv (struct mb_fq *self)
 {
     struct mb_list_item *it;
 
+    /* Real queued messages — not sticky active (IN callbacks unwired). */
     for (it = mb_list_begin (&self->pipes); it != mb_list_end (&self->pipes);
          it = mb_list_next (&self->pipes, it)) {
         struct mb_fq_data *data = (struct mb_fq_data *) it;
-        if (data->active)
+        if (mb_pipe_has_msg (data->pipe))
             return 1;
     }
     return 0;

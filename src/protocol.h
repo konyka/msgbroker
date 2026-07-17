@@ -25,6 +25,7 @@ void mb_pipe_setdata (struct mb_pipe *self, void *data);
 void *mb_pipe_getdata (struct mb_pipe *self);
 int mb_pipe_send (struct mb_pipe *self, struct mb_msg *msg);
 int mb_pipe_recv (struct mb_pipe *self, struct mb_msg *msg);
+int mb_pipe_has_msg (struct mb_pipe *self);
 void mb_pipe_getopt (struct mb_pipe *self, int level, int option,
     void *optval, size_t *optvallen);
 

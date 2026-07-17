@@ -29,11 +29,19 @@
 
 static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg);
+static int mb_sws_has_msg (struct mb_pipebase *base);
 
 static const struct mb_pipebase_vfptr mb_sws_vfptr = {
     mb_sws_send,
     mb_sws_recv,
+    mb_sws_has_msg,
 };
+
+static int mb_sws_has_msg (struct mb_pipebase *base)
+{
+    (void) base;
+    return 0;
+}
 
 static void mb_ws_mask (uint8_t *data, size_t len, const uint8_t *key)
 {

@@ -300,6 +300,74 @@ static void test_req_poll_no_pollout_while_waiting (void)
     printf ("  test_req_poll_no_pollout_while_waiting: PASSED\n");
 }
 
+/*  REP must re-arm POLLIN after reply when another request is queued. */
+static void test_rep_poll_pollin_after_reply (void)
+{
+    int req1, req2, rep;
+    int rc;
+    char buf[64];
+    struct mb_pollfd fds[1];
+
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+    req1 = mb_socket (AF_MB, MB_REQ);
+    assert (req1 >= 0);
+    req2 = mb_socket (AF_MB, MB_REQ);
+    assert (req2 >= 0);
+
+    rc = mb_bind (rep, "inproc://rep_poll_in");
+    assert (rc >= 0);
+    rc = mb_connect (req1, "inproc://rep_poll_in");
+    assert (rc >= 0);
+    rc = mb_connect (req2, "inproc://rep_poll_in");
+    assert (rc >= 0);
+
+    rc = mb_send (req1, "1", 1, 0);
+    assert (rc == 1);
+    rc = mb_send (req2, "2", 1, 0);
+    assert (rc == 1);
+
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 1);
+    assert (buf[0] == '1' || buf[0] == '2');
+
+    /* Must reply before accepting the other request; no POLLIN meanwhile. */
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = rep;
+    fds[0].events = MB_POLLIN;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLIN));
+
+    rc = mb_send (rep, "A", 1, 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLIN);
+
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 1);
+    assert (buf[0] == '1' || buf[0] == '2');
+
+    rc = mb_send (rep, "B", 1, 0);
+    assert (rc == 1);
+    rc = mb_recv (req1, buf, sizeof (buf), 0);
+    assert (rc == 1);
+    rc = mb_recv (req2, buf, sizeof (buf), 0);
+    assert (rc == 1);
+
+    rc = mb_close (req1);
+    assert (rc == 0);
+    rc = mb_close (req2);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_rep_poll_pollin_after_reply: PASSED\n");
+}
+
 /*  REP must advertise POLLOUT only after recv (sndfd sync). */
 static void test_rep_poll_pollout_after_recv (void)
 {
@@ -407,6 +475,7 @@ int main (void)
     test_reprecv_before_reply ();
     test_req_lb_rotate ();
     test_req_poll_no_pollout_while_waiting ();
+    test_rep_poll_pollin_after_reply ();
     test_rep_poll_pollout_after_recv ();
     test_xreq_xrep_inproc ();
     printf ("All REQ/REP tests passed.\n");

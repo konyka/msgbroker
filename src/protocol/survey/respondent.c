@@ -94,7 +94,7 @@ static int mb_respondent_events (struct mb_sockbase *self)
          it = mb_list_next (&resp->pipes, it)) {
         struct mb_respondent_pipe_data *data =
             (struct mb_respondent_pipe_data *) it;
-        if (data->active) {
+        if (mb_pipe_has_msg (data->pipe)) {
             ev |= MB_SOCKBASE_EVENT_IN;
             break;
         }

@@ -61,7 +61,8 @@ static int mb_pair_events (struct mb_sockbase *self)
     int ev = 0;
     if (pair->pipe) {
         ev |= MB_SOCKBASE_EVENT_OUT;
-        ev |= MB_SOCKBASE_EVENT_IN;
+        if (mb_pipe_has_msg (pair->pipe))
+            ev |= MB_SOCKBASE_EVENT_IN;
     }
     return ev;
 }

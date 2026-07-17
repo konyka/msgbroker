@@ -138,6 +138,15 @@ int mb_pipe_recv (struct mb_pipe *self, struct mb_msg *msg)
     return base->vfptr->recv (base, msg);
 }
 
+int mb_pipe_has_msg (struct mb_pipe *self)
+{
+    struct mb_pipebase *base = (struct mb_pipebase *)self;
+
+    if (!base->vfptr->has_msg)
+        return 0;
+    return base->vfptr->has_msg (base);
+}
+
 void mb_pipe_getopt (struct mb_pipe *self, int level, int option,
     void *optval, size_t *optvallen)
 {

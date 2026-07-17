@@ -71,9 +71,18 @@ static int mb_xbus_events (struct mb_sockbase *self)
 {
     struct mb_xbus *xp = (struct mb_xbus *) self;
     int ev = 0;
+    struct mb_list_item *it;
 
     if (mb_list_begin (&xp->pipes) != mb_list_end (&xp->pipes))
-        ev |= MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+        ev |= MB_SOCKBASE_EVENT_OUT;
+    for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
+         it = mb_list_next (&xp->pipes, it)) {
+        struct mb_xbus_pipe_data *data = (struct mb_xbus_pipe_data *) it;
+        if (mb_pipe_has_msg (data->pipe)) {
+            ev |= MB_SOCKBASE_EVENT_IN;
+            break;
+        }
+    }
     return ev;
 }
 

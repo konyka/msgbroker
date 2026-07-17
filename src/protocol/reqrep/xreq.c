@@ -62,7 +62,7 @@ static int mb_xreq_events (struct mb_sockbase *self)
     for (it = mb_list_begin (&xp->lb.pipes); it != mb_list_end (&xp->lb.pipes);
          it = mb_list_next (&xp->lb.pipes, it)) {
         struct mb_lb_data *data = (struct mb_lb_data *) it;
-        if (data->active) {
+        if (mb_pipe_has_msg (data->pipe)) {
             ev |= MB_SOCKBASE_EVENT_IN;
             break;
         }

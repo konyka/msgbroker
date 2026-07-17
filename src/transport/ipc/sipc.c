@@ -24,11 +24,19 @@
 
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg);
+static int mb_sipc_has_msg (struct mb_pipebase *base);
 
 static const struct mb_pipebase_vfptr mb_sipc_vfptr = {
     mb_sipc_send,
     mb_sipc_recv,
+    mb_sipc_has_msg,
 };
+
+static int mb_sipc_has_msg (struct mb_pipebase *base)
+{
+    (void) base;
+    return 0;
+}
 
 static int mb_sipc_send_fd (int fd, const void *buf, size_t len)
 {

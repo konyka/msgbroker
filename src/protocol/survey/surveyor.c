@@ -137,7 +137,7 @@ static int mb_surveyor_events (struct mb_sockbase *self)
              it = mb_list_next (&sv->pipes, it)) {
             struct mb_surveyor_pipe_data *data =
                 (struct mb_surveyor_pipe_data *) it;
-            if (data->active) {
+            if (mb_pipe_has_msg (data->pipe)) {
                 ev |= MB_SOCKBASE_EVENT_IN;
                 break;
             }

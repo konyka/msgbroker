@@ -50,6 +50,8 @@ struct mb_pipebase;
 struct mb_pipebase_vfptr {
     int (*send) (struct mb_pipebase *self, struct mb_msg *msg);
     int (*recv) (struct mb_pipebase *self, struct mb_msg *msg);
+    /* Non-destructive: 1 if a message is queued for recv. */
+    int (*has_msg) (struct mb_pipebase *self);
 };
 
 struct mb_ep_options {

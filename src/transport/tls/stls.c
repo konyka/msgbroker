@@ -19,11 +19,19 @@
 
 static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg);
+static int mb_stls_has_msg (struct mb_pipebase *base);
 
 static const struct mb_pipebase_vfptr mb_stls_vfptr = {
     mb_stls_send,
     mb_stls_recv,
+    mb_stls_has_msg,
 };
+
+static int mb_stls_has_msg (struct mb_pipebase *base)
+{
+    (void) base;
+    return 0;
+}
 
 static int mb_stls_send_ssl (SSL *ssl, const void *buf, size_t len)
 {
