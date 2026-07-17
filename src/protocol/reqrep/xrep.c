@@ -77,14 +77,20 @@ static void mb_xrep_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xrep_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    struct mb_xrep *xp = (struct mb_xrep *) self;
+    int ev = 0;
+
+    if (mb_fq_can_recv (&xp->fq))
+        ev |= MB_SOCKBASE_EVENT_IN;
+    if (mb_lb_can_send (&xp->lb))
+        ev |= MB_SOCKBASE_EVENT_OUT;
+    return ev;
 }
 
 static int mb_xrep_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
-    (void) self; (void) msg;
-    return -EAGAIN;
+    struct mb_xrep *xp = (struct mb_xrep *) self;
+    return mb_lb_send (&xp->lb, msg);
 }
 
 static int mb_xrep_recv (struct mb_sockbase *self, struct mb_msg *msg)

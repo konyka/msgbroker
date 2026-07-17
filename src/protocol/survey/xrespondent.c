@@ -76,7 +76,26 @@ static int mb_xrespondent_events (struct mb_sockbase *self)
 
 static int mb_xrespondent_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
-    (void) self; (void) msg;
+    struct mb_xrespondent *xp = (struct mb_xrespondent *) self;
+    struct mb_list_item *it;
+
+    /* No identity/last_pipe in this raw model: try pipes round-robin. */
+    for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes); ) {
+        struct mb_xrespondent_pipe_data *data =
+            (struct mb_xrespondent_pipe_data *) it;
+        struct mb_list_item *next = mb_list_next (&xp->pipes, it);
+        int rc = mb_pipe_send (data->pipe, msg);
+
+        if (rc == 0) {
+            mb_list_erase (&xp->pipes, &data->item);
+            mb_list_insert (&xp->pipes, &data->item,
+                mb_list_end (&xp->pipes));
+            return 0;
+        }
+        if (rc != -EAGAIN)
+            return rc;
+        it = next;
+    }
     return -EAGAIN;
 }
 

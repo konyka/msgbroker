@@ -52,8 +52,22 @@ static void mb_xreq_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xreq_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    struct mb_xreq *xp = (struct mb_xreq *) self;
+    int ev = 0;
+    struct mb_list_item *it;
+
+    if (mb_lb_can_send (&xp->lb))
+        ev |= MB_SOCKBASE_EVENT_OUT;
+
+    for (it = mb_list_begin (&xp->lb.pipes); it != mb_list_end (&xp->lb.pipes);
+         it = mb_list_next (&xp->lb.pipes, it)) {
+        struct mb_lb_data *data = (struct mb_lb_data *) it;
+        if (data->active) {
+            ev |= MB_SOCKBASE_EVENT_IN;
+            break;
+        }
+    }
+    return ev;
 }
 
 static int mb_xreq_send (struct mb_sockbase *self, struct mb_msg *msg)
@@ -64,8 +78,28 @@ static int mb_xreq_send (struct mb_sockbase *self, struct mb_msg *msg)
 
 static int mb_xreq_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
-    (void) self;
-    (void) msg;
+    struct mb_xreq *xp = (struct mb_xreq *) self;
+    struct mb_list_item *it;
+
+    /* Probe every pipe (OUT/IN callbacks are not wired); rotate on success. */
+    for (it = mb_list_begin (&xp->lb.pipes); it != mb_list_end (&xp->lb.pipes); ) {
+        struct mb_lb_data *data = (struct mb_lb_data *) it;
+        struct mb_list_item *next = mb_list_next (&xp->lb.pipes, it);
+        int rc = mb_pipe_recv (data->pipe, msg);
+
+        if (rc == 0) {
+            data->active = 1;
+            mb_list_erase (&xp->lb.pipes, &data->item);
+            mb_list_insert (&xp->lb.pipes, &data->item,
+                mb_list_end (&xp->lb.pipes));
+            return 0;
+        }
+        if (rc == -EAGAIN)
+            data->active = 0;
+        else
+            return rc;
+        it = next;
+    }
     return -EAGAIN;
 }
 
