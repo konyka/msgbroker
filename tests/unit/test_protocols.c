@@ -7,6 +7,7 @@
 #include <msgbroker/mb_pubsub.h>
 #include <msgbroker/mb_bus.h>
 #include <msgbroker/mb_survey.h>
+#include <msgbroker/mb_pair.h>
 
 /*  PUB->SUB via inproc: broadcast. */
 static void test_pubsub_inproc (void)
@@ -229,6 +230,25 @@ static void test_xsurveyor_send_no_peers (void)
     printf ("  test_xsurveyor_send_no_peers: PASSED\n");
 }
 
+/*  Raw XPAIR must not report success when nothing was delivered. */
+static void test_xpair_send_no_peers (void)
+{
+    int s;
+    int rc;
+
+    s = mb_socket (AF_MB, MB_XPAIR);
+    assert (s >= 0);
+
+    rc = mb_send (s, "X", 1, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_close (s);
+    assert (rc == 0);
+
+    printf ("  test_xpair_send_no_peers: PASSED\n");
+}
+
 int main (void)
 {
     printf ("PUB/SUB, BUS, Survey protocol tests:\n");
@@ -240,6 +260,7 @@ int main (void)
     test_survey_fsm ();
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();
+    test_xpair_send_no_peers ();
     printf ("All protocol tests passed.\n");
     return 0;
 }
