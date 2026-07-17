@@ -1,7 +1,6 @@
 #include "../transport.h"
 #include "sock.h"
 #include "ep.h"
-#include "../pal/efd.h"
 
 #include <assert.h>
 #include <string.h>
@@ -70,7 +69,8 @@ int mb_pipebase_start (struct mb_pipebase *self)
     mb_pipebase_received (self);
     mb_pipebase_sent (self);
 
-    mb_efd_signal (&self->sock->sndfd);
+    /* sndfd is synced from sockbase EVENT_OUT inside mb_sock_pipe_add;
+     * do not force-signal here (would sticky-POLLOUT REP/etc.). */
 
     return 0;
 }

@@ -247,6 +247,119 @@ static void test_req_lb_rotate (void)
     printf ("  test_req_lb_rotate: PASSED\n");
 }
 
+/*  REQ must clear POLLOUT while waiting for a reply (sndfd sync). */
+static void test_req_poll_no_pollout_while_waiting (void)
+{
+    int req, rep;
+    int rc;
+    char buf[64];
+    struct mb_pollfd fds[1];
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "inproc://req_poll_out");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://req_poll_out");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = req;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_send (req, "Q", 1, 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 1);
+    rc = mb_send (rep, "A", 1, 0);
+    assert (rc == 1);
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_req_poll_no_pollout_while_waiting: PASSED\n");
+}
+
+/*  REP must advertise POLLOUT only after recv (sndfd sync). */
+static void test_rep_poll_pollout_after_recv (void)
+{
+    int req, rep;
+    int rc;
+    char buf[64];
+    struct mb_pollfd fds[1];
+
+    req = mb_socket (AF_MB, MB_REQ);
+    assert (req >= 0);
+    rep = mb_socket (AF_MB, MB_REP);
+    assert (rep >= 0);
+
+    rc = mb_bind (rep, "inproc://rep_poll_out");
+    assert (rc >= 0);
+    rc = mb_connect (req, "inproc://rep_poll_out");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = rep;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_send (req, "Q", 1, 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_recv (rep, buf, sizeof (buf), 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_send (rep, "A", 1, 0);
+    assert (rc == 1);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_recv (req, buf, sizeof (buf), 0);
+    assert (rc == 1);
+
+    rc = mb_close (req);
+    assert (rc == 0);
+    rc = mb_close (rep);
+    assert (rc == 0);
+
+    printf ("  test_rep_poll_pollout_after_recv: PASSED\n");
+}
+
 /*  Raw XREQ/XREP must send and recv (not permanent EAGAIN stubs). */
 static void test_xreq_xrep_inproc (void)
 {
@@ -293,6 +406,8 @@ int main (void)
     test_reqrecv_before_send ();
     test_reprecv_before_reply ();
     test_req_lb_rotate ();
+    test_req_poll_no_pollout_while_waiting ();
+    test_rep_poll_pollout_after_recv ();
     test_xreq_xrep_inproc ();
     printf ("All REQ/REP tests passed.\n");
     return 0;

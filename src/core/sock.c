@@ -17,8 +17,10 @@
 #include <string.h>
 
 /* Keep MB_SNDFD aligned with sockbase OUT readiness after pipe topology
- * changes. Do not mirror IN here: several protocols advertise IN whenever a
- * pipe exists, while rcvfd must track real queued messages (see sinproc). */
+ * changes and after send/recv FSM transitions (REQ sending, REP last_pipe,
+ * SURVEYOR surveying, etc.). Do not mirror IN here: several protocols
+ * advertise IN whenever a pipe exists, while rcvfd must track real queued
+ * messages (see sinproc). */
 static void mb_sock_sync_sndfd (struct mb_sock *self)
 {
     int ev;
@@ -319,6 +321,7 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
             self->statistics.bytes_sent += nbytes;
         }
     }
+    mb_sock_sync_sndfd (self);
     mb_ctx_leave (&self->ctx);
     return rc;
 }
@@ -340,6 +343,7 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
         self->statistics.messages_received++;
         self->statistics.bytes_received += mb_chunkref_size (&msg->body);
     }
+    mb_sock_sync_sndfd (self);
     mb_ctx_leave (&self->ctx);
     return rc;
 }
