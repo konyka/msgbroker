@@ -363,6 +363,28 @@ static void test_xbus_send_no_peers (void)
     printf ("  test_xbus_send_no_peers: PASSED\n");
 }
 
+/*  Raw XSUB must not report success when no upstream peers exist. */
+static void test_xsub_send_no_peers (void)
+{
+    int s;
+    int rc;
+    char submsg[2];
+
+    s = mb_socket (AF_MB, MB_XSUB);
+    assert (s >= 0);
+
+    submsg[0] = 1;
+    submsg[1] = 'a';
+    rc = mb_send (s, submsg, 2, MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_close (s);
+    assert (rc == 0);
+
+    printf ("  test_xsub_send_no_peers: PASSED\n");
+}
+
 /*  XRESPONDENT must clear sticky POLLOUT after last peer disconnects. */
 static void test_xrespondent_poll_no_peers (void)
 {
@@ -417,6 +439,7 @@ int main (void)
     test_xpair_send_no_peers ();
     test_bus_send_no_peers ();
     test_xbus_send_no_peers ();
+    test_xsub_send_no_peers ();
     test_xrespondent_poll_no_peers ();
     printf ("All protocol tests passed.\n");
     return 0;

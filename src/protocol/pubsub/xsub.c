@@ -53,8 +53,10 @@ static void mb_xsub_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 static int mb_xsub_events (struct mb_sockbase *self)
 {
     struct mb_xsub *xp = (struct mb_xsub *) self;
-    int ev = MB_SOCKBASE_EVENT_OUT;
+    int ev = 0;
 
+    if (mb_list_begin (&xp->fq.pipes) != mb_list_end (&xp->fq.pipes))
+        ev |= MB_SOCKBASE_EVENT_OUT;
     if (mb_fq_can_recv (&xp->fq))
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
@@ -64,6 +66,7 @@ static int mb_xsub_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_xsub *xp = (struct mb_xsub *) self;
     struct mb_list_item *it;
+    int sent = 0;
 
     /* Fan-out subscription/control messages to all upstream PUB/XPUB peers. */
     for (it = mb_list_begin (&xp->fq.pipes); it != mb_list_end (&xp->fq.pipes);
@@ -75,9 +78,14 @@ static int mb_xsub_send (struct mb_sockbase *self, struct mb_msg *msg)
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
         rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0)
+        if (rc == 0)
+            sent++;
+        else
             mb_msg_term (&copy);
     }
+    /* Match XBUS/XPAIR: zero delivery is not success. */
+    if (sent == 0)
+        return -EAGAIN;
     return 0;
 }
 
