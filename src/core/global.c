@@ -553,8 +553,9 @@ int mb_send (int s, const void *buf, size_t len, int flags)
         }
     }
 
-    if (rc < 0)
-        mb_msg_term (&msg);
+    /* Always release: fanout protocols copy and leave the original owned;
+     * consuming pipes already emptied it (term is then a no-op). */
+    mb_msg_term (&msg);
 
     mb_global_rele_socket (sock);
 
@@ -681,8 +682,7 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
     }
 
     rc = mb_sock_send (sock, &msg);
-    if (rc < 0)
-        mb_msg_term (&msg);
+    mb_msg_term (&msg);
 
     mb_global_rele_socket (sock);
 

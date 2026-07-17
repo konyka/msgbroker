@@ -292,10 +292,15 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
         mb_ctx_leave (&self->ctx);
         return -EBADF;
     }
-    rc = self->sockbase->vfptr->send (self->sockbase, msg);
-    if (rc >= 0) {
-        self->statistics.messages_sent++;
-        self->statistics.bytes_sent += mb_chunkref_size (&msg->body);
+    {
+        /* Capture before send: consuming pipes empty the msg on success. */
+        size_t nbytes = mb_chunkref_size (&msg->body);
+
+        rc = self->sockbase->vfptr->send (self->sockbase, msg);
+        if (rc >= 0) {
+            self->statistics.messages_sent++;
+            self->statistics.bytes_sent += nbytes;
+        }
     }
     mb_ctx_leave (&self->ctx);
     return rc;
