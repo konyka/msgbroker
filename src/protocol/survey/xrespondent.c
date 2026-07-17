@@ -70,8 +70,12 @@ static void mb_xrespondent_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xrespondent_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    struct mb_xrespondent *xp = (struct mb_xrespondent *) self;
+    int ev = 0;
+
+    if (mb_list_begin (&xp->pipes) != mb_list_end (&xp->pipes))
+        ev |= MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    return ev;
 }
 
 static int mb_xrespondent_send (struct mb_sockbase *self, struct mb_msg *msg)

@@ -268,6 +268,44 @@ static void test_xbus_send_no_peers (void)
     printf ("  test_xbus_send_no_peers: PASSED\n");
 }
 
+/*  XRESPONDENT must clear sticky POLLOUT after last peer disconnects. */
+static void test_xrespondent_poll_no_peers (void)
+{
+    int sv, rs;
+    int rc;
+    struct mb_pollfd fds[1];
+
+    sv = mb_socket (AF_MB, MB_XSURVEYOR);
+    assert (sv >= 0);
+    rs = mb_socket (AF_MB, MB_XRESPONDENT);
+    assert (rs >= 0);
+
+    rc = mb_bind (sv, "inproc://xresp_poll");
+    assert (rc >= 0);
+    rc = mb_connect (rs, "inproc://xresp_poll");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = rs;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_close (sv);
+    assert (rc == 0);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_close (rs);
+    assert (rc == 0);
+
+    printf ("  test_xrespondent_poll_no_peers: PASSED\n");
+}
+
 int main (void)
 {
     printf ("PUB/SUB, BUS, Survey protocol tests:\n");
@@ -281,6 +319,7 @@ int main (void)
     test_xsurveyor_send_no_peers ();
     test_xpair_send_no_peers ();
     test_xbus_send_no_peers ();
+    test_xrespondent_poll_no_peers ();
     printf ("All protocol tests passed.\n");
     return 0;
 }
