@@ -61,24 +61,26 @@ int mb_lb_can_send (struct mb_lb *self)
 int mb_lb_send (struct mb_lb *self, struct mb_msg *msg)
 {
     struct mb_list_item *it;
-    struct mb_list_item *first;
 
-    first = mb_list_begin (&self->pipes);
-
-    for (it = first; it != mb_list_end (&self->pipes);
-         it = mb_list_next (&self->pipes, it)) {
+    /* Probe every pipe: sockbase OUT callbacks are not wired, so active is
+     * only a poll hint. Clear sticky active on EAGAIN; rotate on success. */
+    for (it = mb_list_begin (&self->pipes); it != mb_list_end (&self->pipes); ) {
         struct mb_lb_data *data = (struct mb_lb_data *) it;
-        if (data->active) {
-            int rc = mb_pipe_send (data->pipe, msg);
-            if (rc == 0) {
-                mb_list_erase (&self->pipes, &data->item);
-                mb_list_insert (&self->pipes, &data->item,
-                    mb_list_end (&self->pipes));
-                return 0;
-            }
-            if (rc != -EAGAIN)
-                return rc;
+        struct mb_list_item *next = mb_list_next (&self->pipes, it);
+        int rc = mb_pipe_send (data->pipe, msg);
+
+        if (rc == 0) {
+            data->active = 1;
+            mb_list_erase (&self->pipes, &data->item);
+            mb_list_insert (&self->pipes, &data->item,
+                mb_list_end (&self->pipes));
+            return 0;
         }
+        if (rc == -EAGAIN)
+            data->active = 0;
+        else
+            return rc;
+        it = next;
     }
 
     return -EAGAIN;
