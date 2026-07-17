@@ -69,23 +69,37 @@ static void mb_xbus_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_xbus_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    struct mb_xbus *xp = (struct mb_xbus *) self;
+    int ev = 0;
+
+    if (mb_list_begin (&xp->pipes) != mb_list_end (&xp->pipes))
+        ev |= MB_SOCKBASE_EVENT_IN | MB_SOCKBASE_EVENT_OUT;
+    return ev;
 }
 
 static int mb_xbus_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_xbus *xp = (struct mb_xbus *) self;
     struct mb_list_item *it;
+    int sent = 0;
+
     for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
          it = mb_list_next (&xp->pipes, it)) {
         struct mb_xbus_pipe_data *data = (struct mb_xbus_pipe_data *) it;
         struct mb_msg copy;
+        int rc;
+
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
-        int rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0) mb_msg_term (&copy);
+        rc = mb_pipe_send (data->pipe, &copy);
+        if (rc == 0)
+            sent++;
+        else
+            mb_msg_term (&copy);
     }
+    /* Match XPAIR/XSURVEYOR: zero delivery is not success. */
+    if (sent == 0)
+        return -EAGAIN;
     return 0;
 }
 
