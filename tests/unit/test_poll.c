@@ -76,7 +76,14 @@ int main (void)
     assert (fds[1].revents & MB_POLLIN);
     assert (fds[0].revents & MB_POLLOUT);
 
+    /* Peer gone: sndfd must not stay sticky-ready. */
     mb_close (s2);
+    fds[0].revents = 0;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
     mb_close (s1);
 
     printf ("test_poll: PASSED\n");

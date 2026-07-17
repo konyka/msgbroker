@@ -9,11 +9,28 @@
 #include "global.h"
 #include "ep.h"
 #include "pipe.h"
+#include "../pal/efd.h"
 
 #include <msgbroker/mb_tls.h>
 
 #include <stdio.h>
 #include <string.h>
+
+/* Keep MB_SNDFD aligned with sockbase OUT readiness after pipe topology
+ * changes. Do not mirror IN here: several protocols advertise IN whenever a
+ * pipe exists, while rcvfd must track real queued messages (see sinproc). */
+static void mb_sock_sync_sndfd (struct mb_sock *self)
+{
+    int ev;
+
+    if (!self->sockbase || !self->sockbase->vfptr->events)
+        return;
+    ev = self->sockbase->vfptr->events (self->sockbase);
+    if (ev & MB_SOCKBASE_EVENT_OUT)
+        mb_efd_signal (&self->sndfd);
+    else
+        mb_efd_unsignal (&self->sndfd);
+}
 
 static void mb_sock_handler (struct mb_fsm *self, int src, int type,
     void *srcptr);
@@ -329,6 +346,8 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
 
 int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
 {
+    int rc;
+
     /* Accept/reconnect threads must not take ctx here: mb_sock_stop joins
      * those threads and briefly holds ctx only around list splice/destroy. */
     if (__atomic_load_n (&self->flags, __ATOMIC_ACQUIRE) &
@@ -336,7 +355,10 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
         return -EBADF;
     if (!self->sockbase)
         return -EBADF;
-    return self->sockbase->vfptr->add (self->sockbase, pipe);
+    rc = self->sockbase->vfptr->add (self->sockbase, pipe);
+    if (rc == 0)
+        mb_sock_sync_sndfd (self);
+    return rc;
 }
 
 void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
@@ -346,6 +368,7 @@ void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
     if (!self->sockbase)
         return;
     self->sockbase->vfptr->rm (self->sockbase, pipe);
+    mb_sock_sync_sndfd (self);
 }
 
 void mb_sock_stat_increment (struct mb_sock *self, int name, int increment)
