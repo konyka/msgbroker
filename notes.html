@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-118 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-119 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1614,6 +1614,18 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>device forward</b>: check STOPPING before each send retry; term msg and return</li>
 <li>[x] test: <code>test_device_close_under_send_backpressure</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 119 — LB can_send Restores POLLOUT After Backpressure</h2>
+<span class="status done">DONE</span>
+<p><code>mb_lb_can_send</code> only checked sticky <code>active</code>. After all pipes returned <code>EAGAIN</code>, OUT callbacks (unwired) never re-activated them, so <code>mb_poll(POLLOUT)</code> on PUSH/REQ/XREP stayed false forever even after the peer drained.</p>
+<ul>
+<li>[x] <b>pipe can_send</b>: stream transports flush pending outbuf when POLLOUT; inproc if peer exists</li>
+<li>[x] <b>mb_lb_can_send</b>: probe <code>mb_pipe_can_send</code> (mirror fq <code>has_msg</code>)</li>
+<li>[x] test: <code>test_push_poll_polout_after_backpressure</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

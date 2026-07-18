@@ -30,11 +30,14 @@
 static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sws_has_msg (struct mb_pipebase *base);
+static int mb_sws_can_send (struct mb_pipebase *base);
+static int mb_sws_flush_outbuf (struct mb_sws *self);
 
 static const struct mb_pipebase_vfptr mb_sws_vfptr = {
     mb_sws_send,
     mb_sws_recv,
     mb_sws_has_msg,
+    mb_sws_can_send,
 };
 
 static int mb_sws_has_msg (struct mb_pipebase *base)
@@ -54,6 +57,28 @@ static int mb_sws_has_msg (struct mb_pipebase *base)
     pfd.events = POLLIN;
     rc = poll (&pfd, 1, 0);
     return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+}
+
+static int mb_sws_can_send (struct mb_pipebase *base)
+{
+    struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
+    struct pollfd pfd;
+    int rc;
+
+    if (self->fd < 0 || self->disconnected)
+        return 0;
+    if (!self->outbuf)
+        return 1;
+
+    pfd.fd = self->fd;
+    pfd.events = POLLOUT;
+    rc = poll (&pfd, 1, 0);
+    if (rc <= 0 || !(pfd.revents & POLLOUT))
+        return 0;
+    rc = mb_sws_flush_outbuf (self);
+    if (rc < 0 && rc != -EAGAIN)
+        return 0;
+    return self->outbuf == NULL;
 }
 
 static void mb_ws_mask (uint8_t *data, size_t len, const uint8_t *key)

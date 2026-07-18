@@ -20,11 +20,14 @@
 static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_stls_has_msg (struct mb_pipebase *base);
+static int mb_stls_can_send (struct mb_pipebase *base);
+static int mb_stls_flush_outbuf (struct mb_stls *self);
 
 static const struct mb_pipebase_vfptr mb_stls_vfptr = {
     mb_stls_send,
     mb_stls_recv,
     mb_stls_has_msg,
+    mb_stls_can_send,
 };
 
 static int mb_stls_has_msg (struct mb_pipebase *base)
@@ -48,6 +51,32 @@ static int mb_stls_has_msg (struct mb_pipebase *base)
     pfd.events = POLLIN;
     rc = poll (&pfd, 1, 0);
     return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+}
+
+static int mb_stls_can_send (struct mb_pipebase *base)
+{
+    struct mb_stls *self = mb_cont (base, struct mb_stls, pipebase);
+    struct pollfd pfd;
+    int fd;
+    int rc;
+
+    if (!self->ssl || self->disconnected)
+        return 0;
+    if (!self->outbuf)
+        return 1;
+
+    fd = SSL_get_fd (self->ssl);
+    if (fd < 0)
+        return 0;
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    rc = poll (&pfd, 1, 0);
+    if (rc <= 0 || !(pfd.revents & POLLOUT))
+        return 0;
+    rc = mb_stls_flush_outbuf (self);
+    if (rc < 0 && rc != -EAGAIN)
+        return 0;
+    return self->outbuf == NULL;
 }
 
 static int mb_stls_send_ssl (SSL *ssl, const void *buf, size_t len)

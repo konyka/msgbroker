@@ -13,11 +13,13 @@
 static int mb_sinproc_send (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_recv (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_has_msg (struct mb_pipebase *self);
+static int mb_sinproc_can_send (struct mb_pipebase *self);
 
 static const struct mb_pipebase_vfptr mb_sinproc_vfptr = {
     mb_sinproc_send,
     mb_sinproc_recv,
     mb_sinproc_has_msg,
+    mb_sinproc_can_send,
 };
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)
@@ -110,6 +112,13 @@ static int mb_sinproc_has_msg (struct mb_pipebase *base)
     struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
 
     return !mb_msgqueue_empty (&self->msgqueue);
+}
+
+static int mb_sinproc_can_send (struct mb_pipebase *base)
+{
+    struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
+
+    return self->peer != NULL;
 }
 
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)

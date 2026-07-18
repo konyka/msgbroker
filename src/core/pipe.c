@@ -147,6 +147,15 @@ int mb_pipe_has_msg (struct mb_pipe *self)
     return base->vfptr->has_msg (base);
 }
 
+int mb_pipe_can_send (struct mb_pipe *self)
+{
+    struct mb_pipebase *base = (struct mb_pipebase *)self;
+
+    if (!base->vfptr->can_send)
+        return 1;
+    return base->vfptr->can_send (base);
+}
+
 void mb_pipe_getopt (struct mb_pipe *self, int level, int option,
     void *optval, size_t *optvallen)
 {

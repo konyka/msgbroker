@@ -49,11 +49,16 @@ int mb_lb_can_send (struct mb_lb *self)
 {
     struct mb_list_item *it;
 
+    /* Probe real writability — OUT callbacks are unwired, so sticky active
+     * alone never recovers after backpressure clears all pipes. */
     for (it = mb_list_begin (&self->pipes); it != mb_list_end (&self->pipes);
          it = mb_list_next (&self->pipes, it)) {
         struct mb_lb_data *data = (struct mb_lb_data *) it;
-        if (data->active)
+        if (mb_pipe_can_send (data->pipe)) {
+            data->active = 1;
             return 1;
+        }
+        data->active = 0;
     }
     return 0;
 }

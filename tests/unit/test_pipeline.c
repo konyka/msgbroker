@@ -164,6 +164,74 @@ static void test_pipeline_fanout (void)
     printf ("  test_pipeline_fanout: PASSED\n");
 }
 
+/*  PUSH POLLOUT must return after TCP backpressure clears. */
+static void test_push_poll_polout_after_backpressure (void)
+{
+    int push, pull;
+    int rc;
+    int i;
+    int hit_eagain = 0;
+    char buf[65536];
+    char rbuf[65536];
+    struct mb_pollfd fds[1];
+
+    push = mb_socket (AF_MB, MB_PUSH);
+    assert (push >= 0);
+    pull = mb_socket (AF_MB, MB_PULL);
+    assert (pull >= 0);
+
+    rc = mb_bind (pull, "tcp://127.0.0.1:19901");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (push, "tcp://127.0.0.1:19901");
+    assert (rc >= 0);
+    usleep (100000);
+
+    memset (buf, 'X', sizeof (buf));
+    for (i = 0; i < 512; ++i) {
+        rc = mb_send (push, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            hit_eagain = 1;
+            break;
+        }
+    }
+    assert (hit_eagain);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = push;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    /* Drain peer until PUSH POLLOUT returns (outbuf flush + window open). */
+    {
+        int woke = 0;
+        for (i = 0; i < 100; ++i) {
+            while (mb_recv (pull, rbuf, sizeof (rbuf), MB_DONTWAIT) > 0)
+                ;
+            fds[0].revents = 0;
+            rc = mb_poll (fds, 1, 50);
+            if (rc >= 1 && (fds[0].revents & MB_POLLOUT)) {
+                woke = 1;
+                break;
+            }
+        }
+        assert (woke);
+    }
+
+    rc = mb_send (push, "OK", 2, MB_DONTWAIT);
+    assert (rc == 2);
+
+    rc = mb_close (push);
+    assert (rc == 0);
+    rc = mb_close (pull);
+    assert (rc == 0);
+
+    printf ("  test_push_poll_polout_after_backpressure: PASSED\n");
+}
+
 int main (void)
 {
     printf ("Pipeline protocol tests:\n");
@@ -172,6 +240,7 @@ int main (void)
     test_pipeline_pull_nosend ();
     test_pipeline_tcp ();
     test_pipeline_fanout ();
+    test_push_poll_polout_after_backpressure ();
     printf ("All pipeline tests passed.\n");
     return 0;
 }

@@ -25,11 +25,14 @@
 static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sipc_has_msg (struct mb_pipebase *base);
+static int mb_sipc_can_send (struct mb_pipebase *base);
+static int mb_sipc_flush_outbuf (struct mb_sipc *self);
 
 static const struct mb_pipebase_vfptr mb_sipc_vfptr = {
     mb_sipc_send,
     mb_sipc_recv,
     mb_sipc_has_msg,
+    mb_sipc_can_send,
 };
 
 static int mb_sipc_has_msg (struct mb_pipebase *base)
@@ -47,6 +50,28 @@ static int mb_sipc_has_msg (struct mb_pipebase *base)
     pfd.events = POLLIN;
     rc = poll (&pfd, 1, 0);
     return rc > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+}
+
+static int mb_sipc_can_send (struct mb_pipebase *base)
+{
+    struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
+    struct pollfd pfd;
+    int rc;
+
+    if (self->fd < 0 || self->disconnected)
+        return 0;
+    if (!self->outbuf)
+        return 1;
+
+    pfd.fd = self->fd;
+    pfd.events = POLLOUT;
+    rc = poll (&pfd, 1, 0);
+    if (rc <= 0 || !(pfd.revents & POLLOUT))
+        return 0;
+    rc = mb_sipc_flush_outbuf (self);
+    if (rc < 0 && rc != -EAGAIN)
+        return 0;
+    return self->outbuf == NULL;
 }
 
 static int mb_sipc_send_fd (int fd, const void *buf, size_t len)
