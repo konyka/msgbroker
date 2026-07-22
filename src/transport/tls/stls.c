@@ -352,7 +352,12 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         self->instate = MB_STLS_INSTATE_BODY;
 
         mb_msg_term (&self->inmsg);
-        mb_msg_init (&self->inmsg, (size_t) self->inlen);
+        rc = mb_msg_init_size (&self->inmsg, (size_t) self->inlen);
+        if (rc < 0) {
+            self->instate = MB_STLS_INSTATE_HDR;
+            mb_stls_report_error (self);
+            return rc;
+        }
     }
 
     if (self->instate == MB_STLS_INSTATE_BODY) {

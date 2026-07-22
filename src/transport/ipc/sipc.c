@@ -339,7 +339,11 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         }
 
         mb_msg_term (&self->inmsg);
-        mb_msg_init (&self->inmsg, (size_t) body_size);
+        rc = mb_msg_init_size (&self->inmsg, (size_t) body_size);
+        if (rc < 0) {
+            mb_sipc_report_error (self);
+            return rc;
+        }
         self->inlen = (int) body_size;
         self->inpos = 0;
         self->instate = MB_SIPC_INSTATE_BODY;

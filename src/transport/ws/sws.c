@@ -620,8 +620,11 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                         return -EPROTO;
                     }
                     mb_msg_term (&self->inmsg);
-                    mb_msg_init (&self->inmsg,
-                        (size_t) self->payload_len);
+                    if (mb_msg_init_size (&self->inmsg,
+                            (size_t) self->payload_len) < 0) {
+                        mb_sws_report_error (self);
+                        return -ENOMEM;
+                    }
                     self->inlen = (int) opcode;
                     self->inpos = 0;
                     self->instate = MB_SWS_INSTATE_CTRL;
@@ -635,7 +638,11 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     mb_sws_report_error (self);
                     return -EMSGSIZE;
                 }
-                mb_msg_init (&self->inmsg, (size_t) self->payload_len);
+                if (mb_msg_init_size (&self->inmsg,
+                        (size_t) self->payload_len) < 0) {
+                    mb_sws_report_error (self);
+                    return -ENOMEM;
+                }
                 self->instate = MB_SWS_INSTATE_BODY;
                 self->inpos = 0;
             }
@@ -755,8 +762,10 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     set_rc = mb_chunkref_set (&self->inmsg.body, tmp,
                         (size_t) msg_len);
                     mb_free (tmp);
-                    if (set_rc < 0)
+                    if (set_rc < 0) {
+                        mb_sws_report_error (self);
                         return set_rc;
+                    }
                 } else {
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);

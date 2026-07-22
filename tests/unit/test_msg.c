@@ -31,6 +31,27 @@ static void test_init_data_oom (void)
     printf ("  init_data_oom: OK\n");
 }
 
+static void test_msg_init_size_oom (void)
+{
+    void *probe = NULL;
+    size_t huge = (size_t) -1 / 4;
+    struct mb_msg msg;
+    int arc;
+
+    arc = mb_chunk_alloc (huge, &probe);
+    if (arc != -ENOMEM) {
+        if (probe)
+            mb_chunk_free (probe);
+        printf ("  msg_init_size_oom: SKIPPED\n");
+        return;
+    }
+
+    assert (mb_msg_init_size (&msg, huge) == -ENOMEM);
+    assert (mb_chunkref_size (&msg.body) == 0);
+    mb_msg_term (&msg);
+    printf ("  msg_init_size_oom: OK\n");
+}
+
 static void test_chunkref_set_oom (void)
 {
     void *probe = NULL;
@@ -82,6 +103,7 @@ int main (void)
     mb_msg_term (&m3);
 
     test_init_data_oom ();
+    test_msg_init_size_oom ();
     test_chunkref_set_oom ();
 
     printf ("test_msg: PASSED\n");

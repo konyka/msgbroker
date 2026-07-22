@@ -1,5 +1,6 @@
 #include "msg.h"
 #include "chunk.h"
+#include <errno.h>
 #include <string.h>
 
 void mb_msg_init (struct mb_msg *self, size_t size)
@@ -7,6 +8,17 @@ void mb_msg_init (struct mb_msg *self, size_t size)
     mb_chunkref_init (&self->sphdr, 0);
     mb_chunkref_init (&self->hdrs, 0);
     mb_chunkref_init (&self->body, size);
+}
+
+int mb_msg_init_size (struct mb_msg *self, size_t size)
+{
+    mb_msg_init (self, size);
+    if (size > MB_CHUNKREF_MAX && !mb_chunkref_data (&self->body)) {
+        mb_msg_term (self);
+        mb_msg_init (self, 0);
+        return -ENOMEM;
+    }
+    return 0;
 }
 
 void mb_msg_init_data (struct mb_msg *self, const void *data, size_t size)
