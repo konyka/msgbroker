@@ -74,20 +74,29 @@ size_t mb_chunkref_size (struct mb_chunkref *self)
     return self->size;
 }
 
-void mb_chunkref_set (struct mb_chunkref *self, const void *data,
+int mb_chunkref_set (struct mb_chunkref *self, const void *data,
     size_t size)
 {
+    void *chunk = NULL;
+
+    if (size > MB_CHUNKREF_MAX) {
+        int rc = mb_chunk_alloc (size, &chunk);
+        if (rc < 0)
+            return rc;
+    }
+
     if (self->size > MB_CHUNKREF_MAX && self->u.chunk)
         mb_chunk_free (self->u.chunk);
+
     self->size = size;
     if (size <= MB_CHUNKREF_MAX) {
-        memcpy (self->u.data, data, size);
+        if (size > 0)
+            memcpy (self->u.data, data, size);
     } else {
-        void *chunk = NULL;
-        mb_chunk_alloc (size, &chunk);
         memcpy (chunk, data, size);
         self->u.chunk = chunk;
     }
+    return 0;
 }
 
 void mb_chunkref_resize (struct mb_chunkref *self, size_t size)

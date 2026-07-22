@@ -746,14 +746,17 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
 
                 if (msg_len > 0) {
                     void *tmp = mb_alloc ((size_t) msg_len);
+                    int set_rc;
                     if (!tmp)
                         return -ENOMEM;
                     memcpy (tmp, body + 4, (size_t) msg_len);
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);
-                    mb_chunkref_set (&self->inmsg.body, tmp,
+                    set_rc = mb_chunkref_set (&self->inmsg.body, tmp,
                         (size_t) msg_len);
                     mb_free (tmp);
+                    if (set_rc < 0)
+                        return set_rc;
                 } else {
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);

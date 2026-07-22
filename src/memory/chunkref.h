@@ -22,7 +22,7 @@ void mb_chunkref_mv (struct mb_chunkref *dst, struct mb_chunkref *src);
 void mb_chunkref_cp (struct mb_chunkref *dst, struct mb_chunkref *src);
 void *mb_chunkref_data (struct mb_chunkref *self);
 size_t mb_chunkref_size (struct mb_chunkref *self);
-void mb_chunkref_set (struct mb_chunkref *self, const void *data,
+int mb_chunkref_set (struct mb_chunkref *self, const void *data,
     size_t size);
 void mb_chunkref_resize (struct mb_chunkref *self, size_t size);
 
