@@ -3,6 +3,8 @@
 #include "../pal/atomic.h"
 
 #include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,8 +22,12 @@ struct mb_chunk_hdr {
 
 int mb_chunk_alloc (size_t size, void **result)
 {
-    struct mb_chunk_hdr *hdr = (struct mb_chunk_hdr *)
-        mb_alloc (MB_CHUNK_HDR_SIZE + size);
+    struct mb_chunk_hdr *hdr;
+
+    if (size > SIZE_MAX - MB_CHUNK_HDR_SIZE)
+        return -ENOMEM;
+
+    hdr = (struct mb_chunk_hdr *) mb_alloc (MB_CHUNK_HDR_SIZE + size);
     if (!hdr)
         return -ENOMEM;
     hdr->refcount = 1;
@@ -34,7 +40,14 @@ int mb_chunk_alloc (size_t size, void **result)
 int mb_chunk_realloc (size_t size, void **chunk)
 {
     struct mb_chunk_hdr *hdr = MB_CHUNK_FROM_DATA (*chunk);
-    size_t hdr_size = MB_CHUNK_HDR_SIZE + hdr->offset;
+    size_t hdr_size;
+
+    if (hdr->offset > SIZE_MAX - MB_CHUNK_HDR_SIZE)
+        return -ENOMEM;
+    hdr_size = MB_CHUNK_HDR_SIZE + hdr->offset;
+    if (size > SIZE_MAX - hdr_size)
+        return -ENOMEM;
+
     hdr = (struct mb_chunk_hdr *) mb_realloc (hdr, hdr_size + size);
     if (!hdr)
         return -ENOMEM;
