@@ -73,15 +73,15 @@ static int mb_xpub_events (struct mb_sockbase *self)
     int ev = 0;
     struct mb_list_item *it;
 
-    if (mb_list_begin (&xp->pipes) != mb_list_end (&xp->pipes))
-        ev |= MB_SOCKBASE_EVENT_OUT;
     for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
          it = mb_list_next (&xp->pipes, it)) {
         struct mb_xpub_pipe_data *data = (struct mb_xpub_pipe_data *) it;
-        if (mb_pipe_has_msg (data->pipe)) {
+        if (!(ev & MB_SOCKBASE_EVENT_OUT) && mb_pipe_can_send (data->pipe))
+            ev |= MB_SOCKBASE_EVENT_OUT;
+        if (mb_pipe_has_msg (data->pipe))
             ev |= MB_SOCKBASE_EVENT_IN;
+        if ((ev & MB_SOCKBASE_EVENT_IN) && (ev & MB_SOCKBASE_EVENT_OUT))
             break;
-        }
     }
     return ev;
 }
@@ -90,15 +90,27 @@ static int mb_xpub_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_xpub *xp = (struct mb_xpub *) self;
     struct mb_list_item *it;
+    int sent = 0;
+    int have_peer = 0;
+
     for (it = mb_list_begin (&xp->pipes); it != mb_list_end (&xp->pipes);
          it = mb_list_next (&xp->pipes, it)) {
         struct mb_xpub_pipe_data *data = (struct mb_xpub_pipe_data *) it;
         struct mb_msg copy;
+        int rc;
+
+        have_peer = 1;
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
-        int rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0) mb_msg_term (&copy);
+        rc = mb_pipe_send (data->pipe, &copy);
+        if (rc == 0)
+            sent++;
+        else
+            mb_msg_term (&copy);
     }
+
+    if (have_peer && sent == 0)
+        return -EAGAIN;
     return 0;
 }
 

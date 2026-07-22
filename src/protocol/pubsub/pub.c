@@ -71,11 +71,16 @@ static void mb_pub_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 static int mb_pub_events (struct mb_sockbase *self)
 {
     struct mb_pub *pub = (struct mb_pub *) self;
+    struct mb_list_item *it;
 
-    /* Match XPUB: OUT only with at least one subscriber (avoid sticky POLLOUT).
+    /* OUT only when a peer can accept (avoid sticky POLLOUT under backpressure).
      * Send still fire-and-forgets with zero peers. */
-    if (mb_list_begin (&pub->pipes) != mb_list_end (&pub->pipes))
-        return MB_SOCKBASE_EVENT_OUT;
+    for (it = mb_list_begin (&pub->pipes); it != mb_list_end (&pub->pipes);
+         it = mb_list_next (&pub->pipes, it)) {
+        struct mb_pub_pipe_data *data = (struct mb_pub_pipe_data *) it;
+        if (mb_pipe_can_send (data->pipe))
+            return MB_SOCKBASE_EVENT_OUT;
+    }
     return 0;
 }
 
@@ -83,18 +88,28 @@ static int mb_pub_send (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_pub *pub = (struct mb_pub *) self;
     struct mb_list_item *it;
+    int sent = 0;
+    int have_peer = 0;
 
     for (it = mb_list_begin (&pub->pipes); it != mb_list_end (&pub->pipes);
          it = mb_list_next (&pub->pipes, it)) {
         struct mb_pub_pipe_data *data = (struct mb_pub_pipe_data *) it;
         struct mb_msg copy;
+        int rc;
+
+        have_peer = 1;
         mb_msg_init (&copy, 0);
         mb_msg_cp (&copy, msg);
-        int rc = mb_pipe_send (data->pipe, &copy);
-        if (rc < 0)
+        rc = mb_pipe_send (data->pipe, &copy);
+        if (rc == 0)
+            sent++;
+        else
             mb_msg_term (&copy);
     }
 
+    /* Peers exist but none accepted — backpressure. Zero peers stay success. */
+    if (have_peer && sent == 0)
+        return -EAGAIN;
     return 0;
 }
 

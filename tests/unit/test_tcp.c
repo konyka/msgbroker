@@ -10,6 +10,7 @@
 #include <msgbroker/mb_reqrep.h>
 #include <msgbroker/mb_bus.h>
 #include <msgbroker/mb_survey.h>
+#include <msgbroker/mb_pubsub.h>
 
 #include "../../src/pal/thread.h"
 #include "../../src/pal/clock.h"
@@ -553,6 +554,76 @@ static void test_xsurveyor_poll_polout_after_backpressure (void)
     printf ("  test_xsurveyor_poll_polout_after_backpressure: PASSED\n");
 }
 
+/*  PUB POLLOUT must clear under TCP backpressure and return after drain. */
+static void test_pub_poll_polout_after_backpressure (void)
+{
+    int pub, sub;
+    int rc;
+    int i;
+    int hit_eagain = 0;
+    char buf[65536];
+    char rbuf[65536];
+    struct mb_pollfd fds[1];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_bind (pub, "tcp://127.0.0.1:18896");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (sub, "tcp://127.0.0.1:18896");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    assert (rc == 0);
+
+    memset (buf, 'P', sizeof (buf));
+    for (i = 0; i < 512; ++i) {
+        rc = mb_send (pub, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            hit_eagain = 1;
+            break;
+        }
+    }
+    assert (hit_eagain);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = pub;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    {
+        int woke = 0;
+        for (i = 0; i < 100; ++i) {
+            while (mb_recv (sub, rbuf, sizeof (rbuf), MB_DONTWAIT) > 0)
+                ;
+            fds[0].revents = 0;
+            rc = mb_poll (fds, 1, 50);
+            if (rc >= 1 && (fds[0].revents & MB_POLLOUT)) {
+                woke = 1;
+                break;
+            }
+        }
+        assert (woke);
+    }
+
+    rc = mb_send (pub, "OK", 2, MB_DONTWAIT);
+    assert (rc == 2);
+
+    rc = mb_close (pub);
+    assert (rc == 0);
+    rc = mb_close (sub);
+    assert (rc == 0);
+
+    printf ("  test_pub_poll_polout_after_backpressure: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -566,6 +637,7 @@ int main (void)
     test_pair_poll_polout_after_backpressure ();
     test_bus_poll_polout_after_backpressure ();
     test_xsurveyor_poll_polout_after_backpressure ();
+    test_pub_poll_polout_after_backpressure ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }
