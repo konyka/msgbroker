@@ -26,6 +26,17 @@ int main (void)
     assert (p4 != NULL);
 
     mb_arena_term (&arena);
+
+    /* Huge first block: alloc fails → empty arena, no crash. */
+    {
+        size_t huge = (size_t) -1 / 4;
+        mb_arena_init (&arena, huge);
+        assert (mb_arena_alloc (&arena, 1) == NULL);
+        mb_arena_reset (&arena);
+        mb_arena_term (&arena);
+        printf ("  arena_init_oom: OK\n");
+    }
+
     printf ("test_arena: PASSED\n");
     return 0;
 }

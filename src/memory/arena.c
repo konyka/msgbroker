@@ -8,6 +8,8 @@ static struct mb_arena_block *mb_arena_block_new (size_t size)
 {
     struct mb_arena_block *blk = (struct mb_arena_block *)
         mb_alloc (sizeof (struct mb_arena_block) + size);
+    if (!blk)
+        return NULL;
     blk->used = 0;
     blk->size = size;
     blk->next = NULL;
