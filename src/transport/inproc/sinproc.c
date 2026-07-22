@@ -38,12 +38,28 @@ void mb_sinproc_term (struct mb_sinproc *self)
     mb_pipebase_term (&self->pipebase);
 }
 
-void mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer)
+int mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer)
 {
+    int rc;
+
     self->peer = peer;
     peer->peer = self;
-    mb_pipebase_start (&self->pipebase);
-    mb_pipebase_start (&peer->pipebase);
+
+    rc = mb_pipebase_start (&self->pipebase);
+    if (rc < 0) {
+        self->peer = NULL;
+        peer->peer = NULL;
+        return rc;
+    }
+
+    rc = mb_pipebase_start (&peer->pipebase);
+    if (rc < 0) {
+        self->peer = NULL;
+        peer->peer = NULL;
+        mb_pipebase_stop (&self->pipebase);
+        return rc;
+    }
+    return 0;
 }
 
 void mb_sinproc_stop (struct mb_sinproc *self)

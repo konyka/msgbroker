@@ -57,7 +57,18 @@ static int mb_cinproc_connect_cb (struct mb_ins_item *self,
     mb_list_insert (&binproc->sinprocs, &bind_side->item,
         mb_list_end (&binproc->sinprocs));
 
-    mb_sinproc_connect (cinproc->sinproc, bind_side);
+    {
+        int rc = mb_sinproc_connect (cinproc->sinproc, bind_side);
+        if (rc < 0) {
+            mb_list_erase (&binproc->sinprocs, &bind_side->item);
+            mb_sinproc_term (bind_side);
+            mb_free (bind_side);
+            mb_sinproc_term (cinproc->sinproc);
+            mb_free (cinproc->sinproc);
+            cinproc->sinproc = NULL;
+            return rc;
+        }
+    }
     return 0;
 }
 

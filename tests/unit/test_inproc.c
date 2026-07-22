@@ -228,6 +228,41 @@ static int ins_fail_cb (struct mb_ins_item *self, struct mb_ins_item *peer)
     return -ENOMEM;
 }
 
+/* PAIR allows only one peer; second connect must fail with EISCONN. */
+static void test_inproc_pair_second_connect (void)
+{
+    int a, b, c;
+    int rc;
+
+    a = mb_socket (AF_MB, MB_PAIR);
+    assert (a >= 0);
+    b = mb_socket (AF_MB, MB_PAIR);
+    assert (b >= 0);
+    c = mb_socket (AF_MB, MB_PAIR);
+    assert (c >= 0);
+
+    rc = mb_bind (a, "inproc://pair_second");
+    assert (rc >= 0);
+    rc = mb_connect (b, "inproc://pair_second");
+    assert (rc >= 0);
+
+    rc = mb_connect (c, "inproc://pair_second");
+    assert (rc < 0);
+    assert (mb_errno () == EISCONN);
+
+    rc = mb_send (c, "x", 1, MB_DONTWAIT);
+    assert (rc == -1);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_send (b, "ok", 2, 0);
+    assert (rc == 2);
+
+    mb_close (c);
+    mb_close (b);
+    mb_close (a);
+    printf ("  test_inproc_pair_second_connect: PASSED\n");
+}
+
 /* Incompatible socktypes must not create an inproc pipe. */
 static void test_inproc_proto_mismatch (void)
 {
@@ -322,6 +357,7 @@ int main (void)
     test_inproc_address_reuse ();
     test_inproc_multiple_addresses ();
     test_inproc_large_message ();
+    test_inproc_pair_second_connect ();
     test_inproc_proto_mismatch ();
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();

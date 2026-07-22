@@ -16,7 +16,7 @@ struct mb_sinproc {
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep);
 void mb_sinproc_term (struct mb_sinproc *self);
-void mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer);
+int mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer);
 void mb_sinproc_stop (struct mb_sinproc *self);
 
 #endif

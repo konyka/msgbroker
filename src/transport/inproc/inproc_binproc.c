@@ -47,7 +47,15 @@ static int mb_binproc_connect_cb (struct mb_ins_item *self,
     mb_list_insert (&binproc->sinprocs, &sinproc->item,
         mb_list_end (&binproc->sinprocs));
 
-    mb_sinproc_connect (sinproc, peer_sinproc);
+    {
+        int rc = mb_sinproc_connect (sinproc, peer_sinproc);
+        if (rc < 0) {
+            mb_list_erase (&binproc->sinprocs, &sinproc->item);
+            mb_sinproc_term (sinproc);
+            mb_free (sinproc);
+            return rc;
+        }
+    }
     return 0;
 }
 
