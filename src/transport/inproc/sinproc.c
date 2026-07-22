@@ -24,9 +24,15 @@ static const struct mb_pipebase_vfptr mb_sinproc_vfptr = {
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)
 {
+    int rcvbuf;
+    size_t maxmem;
+
     self->peer = NULL;
     mb_pipebase_init (&self->pipebase, &mb_sinproc_vfptr, ep);
-    mb_msgqueue_init (&self->msgqueue, 0);
+    /* Queue holds messages for this end — cap by local MB_RCVBUF. */
+    rcvbuf = mb_ep_sock (ep)->rcvbuf;
+    maxmem = rcvbuf > 0 ? (size_t) rcvbuf : 0;
+    mb_msgqueue_init (&self->msgqueue, maxmem);
     mb_list_item_init (&self->item);
     return 0;
 }
@@ -134,7 +140,8 @@ static int mb_sinproc_can_send (struct mb_pipebase *base)
 {
     struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
 
-    return self->peer != NULL;
+    return self->peer != NULL &&
+        mb_msgqueue_can_push (&self->peer->msgqueue);
 }
 
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
@@ -150,5 +157,10 @@ static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
     mb_efd_unsignal (&self->pipebase.sock->rcvfd);
     if (!mb_msgqueue_empty (&self->msgqueue))
         mb_efd_signal (&self->pipebase.sock->rcvfd);
+
+    /* Peer may have blocked on our RCVBUF — wake its POLLOUT. */
+    if (self->peer && self->peer->pipebase.sock &&
+        mb_msgqueue_can_push (&self->msgqueue))
+        mb_efd_signal (&self->peer->pipebase.sock->sndfd);
     return 0;
 }

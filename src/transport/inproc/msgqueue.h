@@ -33,6 +33,8 @@ struct mb_msgqueue {
 void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem);
 void mb_msgqueue_term (struct mb_msgqueue *self);
 int mb_msgqueue_empty (struct mb_msgqueue *self);
+/* Non-destructive: 1 if push would not hit maxmem (0 maxmem = unlimited). */
+int mb_msgqueue_can_push (struct mb_msgqueue *self);
 /* Returns 1 if the queue was empty before the push, 0 if not, <0 on error. */
 int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg);
 void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg);

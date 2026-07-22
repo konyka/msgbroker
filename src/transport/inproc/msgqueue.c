@@ -56,6 +56,16 @@ int mb_msgqueue_empty (struct mb_msgqueue *self)
     return empty;
 }
 
+int mb_msgqueue_can_push (struct mb_msgqueue *self)
+{
+    int ok;
+
+    mb_mutex_lock (&self->sync);
+    ok = (self->maxmem == 0) || (self->mem < self->maxmem);
+    mb_mutex_unlock (&self->sync);
+    return ok;
+}
+
 static struct mb_msgqueue_chunk *mb_msgqueue_alloc_chunk (struct mb_msgqueue *self)
 {
     struct mb_msgqueue_chunk *chunk;

@@ -348,6 +348,57 @@ static void test_inproc_ins_connect_oom (void)
     printf ("  test_inproc_ins_connect_oom: PASSED\n");
 }
 
+/*  MB_RCVBUF must bound the inproc receive queue (backpressure). */
+static void test_inproc_rcvbuf_backpressure (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int hit_eagain = 0;
+    int rcvbuf = 64;
+    char buf[32];
+    char rbuf[32];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &rcvbuf, sizeof (rcvbuf));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "inproc://test_rcvbuf");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://test_rcvbuf");
+    assert (rc >= 0);
+
+    memset (buf, 'B', sizeof (buf));
+    for (i = 0; i < 16; ++i) {
+        rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            hit_eagain = 1;
+            break;
+        }
+        assert (rc == (int) sizeof (buf));
+    }
+    assert (hit_eagain);
+    assert (i >= 1);
+
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), 0);
+    assert (rc == (int) sizeof (rbuf));
+
+    rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc == (int) sizeof (buf));
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+
+    printf ("  test_inproc_rcvbuf_backpressure: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_inproc:\n");
@@ -361,6 +412,7 @@ int main (void)
     test_inproc_proto_mismatch ();
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
+    test_inproc_rcvbuf_backpressure ();
     printf ("test_inproc: ALL PASSED\n");
     return 0;
 }
