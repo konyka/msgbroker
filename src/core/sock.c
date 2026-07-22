@@ -266,40 +266,46 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
 int mb_sock_getopt (struct mb_sock *self, int level, int option,
     void *optval, size_t *optvallen)
 {
+    int rc;
+
     mb_ctx_enter (&self->ctx);
-    mb_sock_getopt_inner (self, level, option, optval, optvallen);
+    rc = mb_sock_getopt_inner (self, level, option, optval, optvallen);
     mb_ctx_leave (&self->ctx);
-    return 0;
+    return rc;
 }
 
-void mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
+int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
     void *optval, size_t *optvallen)
 {
     int val = 0;
+    int have_val = 0;
+    int rc;
 
     if (level == MB_SOL_SOCKET) {
         switch (option) {
-        case MB_SNDBUF:            val = self->sndbuf; break;
-        case MB_RCVBUF:            val = self->rcvbuf; break;
-        case MB_RCVMAXSIZE:        val = self->rcvmaxsize; break;
-        case MB_SNDTIMEO:          val = self->sndtimeo; break;
-        case MB_RCVTIMEO:          val = self->rcvtimeo; break;
-        case MB_RECONNECT_IVL:     val = self->reconnect_ivl; break;
-        case MB_RECONNECT_IVL_MAX: val = self->reconnect_ivl_max; break;
-        case MB_SNDPRIO:           val = self->ep_template.sndprio; break;
-        case MB_RCVPRIO:           val = self->ep_template.rcvprio; break;
-        case MB_MAXTTL:            val = self->maxttl; break;
-        case MB_LINGER:            val = self->linger; break;
-        case MB_DOMAIN:            val = self->socktype->domain; break;
-        case MB_PROTOCOL:          val = self->socktype->protocol; break;
+        case MB_SNDBUF:            val = self->sndbuf; have_val = 1; break;
+        case MB_RCVBUF:            val = self->rcvbuf; have_val = 1; break;
+        case MB_RCVMAXSIZE:        val = self->rcvmaxsize; have_val = 1; break;
+        case MB_SNDTIMEO:          val = self->sndtimeo; have_val = 1; break;
+        case MB_RCVTIMEO:          val = self->rcvtimeo; have_val = 1; break;
+        case MB_RECONNECT_IVL:     val = self->reconnect_ivl; have_val = 1; break;
+        case MB_RECONNECT_IVL_MAX: val = self->reconnect_ivl_max; have_val = 1; break;
+        case MB_SNDPRIO:           val = self->ep_template.sndprio; have_val = 1; break;
+        case MB_RCVPRIO:           val = self->ep_template.rcvprio; have_val = 1; break;
+        case MB_MAXTTL:            val = self->maxttl; have_val = 1; break;
+        case MB_LINGER:            val = self->linger; have_val = 1; break;
+        case MB_DOMAIN:            val = self->socktype->domain; have_val = 1; break;
+        case MB_PROTOCOL:          val = self->socktype->protocol; have_val = 1; break;
         case MB_SNDFD:
             /* Refresh before exposing fd — mb_poll builds its set via getsockopt. */
             mb_sock_sync_sndfd (self);
             val = mb_efd_getfd (&self->sndfd);
+            have_val = 1;
             break;
         case MB_RCVFD:
             mb_sock_sync_rcvfd (self);
             val = mb_efd_getfd (&self->rcvfd);
+            have_val = 1;
             break;
         case MB_SOCKET_NAME:
             if (*optvallen >= sizeof (self->socket_name)) {
@@ -308,14 +314,27 @@ void mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
             } else {
                 memcpy (optval, self->socket_name, *optvallen);
             }
-            return;
-        default: return;
+            return 0;
+        default:
+            break;
         }
-        if (*optvallen >= sizeof (int)) {
+        if (have_val) {
+            if (*optvallen < sizeof (int))
+                return -EINVAL;
             memcpy (optval, &val, sizeof (int));
             *optvallen = sizeof (int);
+            return 0;
         }
     }
+
+    if (self->sockbase && self->sockbase->vfptr->getopt) {
+        rc = self->sockbase->vfptr->getopt (self->sockbase, level, option,
+            optval, optvallen);
+        if (rc != -ENOPROTOOPT)
+            return rc;
+    }
+
+    return -ENOPROTOOPT;
 }
 
 int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)

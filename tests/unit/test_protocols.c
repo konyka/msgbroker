@@ -213,6 +213,34 @@ static void test_respondent_send_before_recv (void)
 }
 
 /*  Late reply after deadline must not contaminate the next survey. */
+static void test_surveyor_deadline_getopt (void)
+{
+    int sv, rc;
+    int deadline = 50;
+    int got = -1;
+    size_t sz = sizeof (got);
+
+    sv = mb_socket (AF_MB, MB_SURVEYOR);
+    assert (sv >= 0);
+
+    rc = mb_setsockopt (sv, MB_SURVEYOR, MB_SURVEYOR_DEADLINE,
+        &deadline, sizeof (deadline));
+    assert (rc == 0);
+
+    rc = mb_getsockopt (sv, MB_SURVEYOR, MB_SURVEYOR_DEADLINE, &got, &sz);
+    assert (rc == 0);
+    assert (got == 50);
+    assert (sz == sizeof (int));
+
+    sz = sizeof (got);
+    rc = mb_getsockopt (sv, MB_SURVEYOR, 999, &got, &sz);
+    assert (rc < 0);
+    assert (mb_errno () == ENOPROTOOPT);
+
+    mb_close (sv);
+    printf ("  test_surveyor_deadline_getopt: PASSED\n");
+}
+
 static void test_survey_deadline_stale_reply (void)
 {
     int sv, rs;
@@ -586,6 +614,7 @@ int main (void)
     test_survey_inproc ();
     test_survey_fsm ();
     test_respondent_send_before_recv ();
+    test_surveyor_deadline_getopt ();
     test_survey_deadline_stale_reply ();
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();

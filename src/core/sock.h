@@ -88,7 +88,7 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
     const void *optval, size_t optvallen);
 int mb_sock_getopt (struct mb_sock *self, int level, int option,
     void *optval, size_t *optvallen);
-void mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
+int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
     void *optval, size_t *optvallen);
 int mb_sock_send (struct mb_sock *self, struct mb_msg *msg);
 int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg);
