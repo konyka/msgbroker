@@ -10,7 +10,7 @@ struct mb_trie {
     struct mb_trie_node *root;
 };
 
-void mb_trie_init (struct mb_trie *self);
+int mb_trie_init (struct mb_trie *self);
 void mb_trie_term (struct mb_trie *self);
 int mb_trie_add (struct mb_trie *self, const void *data, size_t len);
 int mb_trie_rm (struct mb_trie *self, const void *data, size_t len);

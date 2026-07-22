@@ -202,7 +202,11 @@ static int mb_sub_create (void *hint, struct mb_sockbase **sockbase)
 
     mb_sockbase_init (&sub->base, &mb_sub_vfptr, NULL);
     mb_fq_init (&sub->fq);
-    mb_trie_init (&sub->subscriptions);
+    if (mb_trie_init (&sub->subscriptions) < 0) {
+        mb_fq_term (&sub->fq);
+        mb_free (sub);
+        return -ENOMEM;
+    }
     mb_msg_init (&sub->pending, 0);
     sub->has_pending = 0;
     sub->has_subscriptions = 0;

@@ -1,6 +1,7 @@
 #include "trie.h"
 #include "alloc.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,13 +15,18 @@ static struct mb_trie_node *mb_trie_node_alloc (void)
 {
     struct mb_trie_node *n = (struct mb_trie_node *)
         mb_alloc (sizeof (struct mb_trie_node));
+    if (!n)
+        return NULL;
     memset (n, 0, sizeof (*n));
     return n;
 }
 
-void mb_trie_init (struct mb_trie *self)
+int mb_trie_init (struct mb_trie *self)
 {
     self->root = mb_trie_node_alloc ();
+    if (!self->root)
+        return -ENOMEM;
+    return 0;
 }
 
 static void mb_trie_node_term (struct mb_trie_node *n)
@@ -48,10 +54,16 @@ int mb_trie_add (struct mb_trie *self, const void *data, size_t len)
     const uint8_t *bytes = (const uint8_t *) data;
     size_t i;
 
+    if (!n)
+        return -ENOMEM;
+
     /* Ensure the path exists, then reject duplicates without bumping refs. */
     for (i = 0; i < len; i++) {
-        if (!n->children[bytes[i]])
+        if (!n->children[bytes[i]]) {
             n->children[bytes[i]] = mb_trie_node_alloc ();
+            if (!n->children[bytes[i]])
+                return -ENOMEM;
+        }
         n = n->children[bytes[i]];
     }
     if (n->subscribed)
@@ -102,6 +114,8 @@ static int mb_trie_rm_rec (struct mb_trie_node *n, const uint8_t *data,
 
 int mb_trie_rm (struct mb_trie *self, const void *data, size_t len)
 {
+    if (!self->root)
+        return -1;
     return mb_trie_rm_rec (self->root, (const uint8_t *) data, len);
 }
 
@@ -110,6 +124,10 @@ int mb_trie_match (struct mb_trie *self, const void *data, size_t len)
     struct mb_trie_node *n = self->root;
     const uint8_t *bytes = (const uint8_t *) data;
     size_t i;
+
+    if (!n)
+        return 0;
+
     for (i = 0; i < len; i++) {
         if (n->subscribed)
             return 1;

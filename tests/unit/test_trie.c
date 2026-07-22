@@ -3,17 +3,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 int main (void)
 {
     struct mb_trie t;
 
-    mb_trie_init (&t);
+    assert (mb_trie_init (&t) == 0);
 
     assert (!mb_trie_match (&t, "hello", 5));
 
-    mb_trie_add (&t, "foo", 3);
-    mb_trie_add (&t, "bar", 3);
+    assert (mb_trie_add (&t, "foo", 3) == 1);
+    assert (mb_trie_add (&t, "bar", 3) == 1);
 
     assert (mb_trie_match (&t, "foo", 3));
     assert (mb_trie_match (&t, "foobar", 6));
@@ -68,10 +69,16 @@ int main (void)
     mb_trie_term (&t);
 
     /* Re-init after term must work. */
-    mb_trie_init (&t);
-    mb_trie_add (&t, "ok", 2);
+    assert (mb_trie_init (&t) == 0);
+    assert (mb_trie_add (&t, "ok", 2) == 1);
     assert (mb_trie_match (&t, "ok", 2));
     mb_trie_term (&t);
+
+    /* Null root: no crash; add reports ENOMEM. */
+    t.root = NULL;
+    assert (mb_trie_match (&t, "x", 1) == 0);
+    assert (mb_trie_rm (&t, "x", 1) < 0);
+    assert (mb_trie_add (&t, "x", 1) == -ENOMEM);
 
     printf ("test_trie: PASSED\n");
     return 0;
