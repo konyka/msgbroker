@@ -9,6 +9,7 @@
 #include "../../utils/err.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
+#include "../../memory/chunk.h"
 
 #include <errno.h>
 #include <string.h>
@@ -752,20 +753,21 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 }
 
                 if (msg_len > 0) {
-                    void *tmp = mb_alloc ((size_t) msg_len);
-                    int set_rc;
-                    if (!tmp)
-                        return -ENOMEM;
-                    memcpy (tmp, body + 4, (size_t) msg_len);
-                    mb_msg_term (&self->inmsg);
-                    mb_msg_init (&self->inmsg, 0);
-                    set_rc = mb_chunkref_set (&self->inmsg.body, tmp,
-                        (size_t) msg_len);
-                    mb_free (tmp);
-                    if (set_rc < 0) {
+                    void *chunk = NULL;
+                    int arc = mb_chunk_alloc ((size_t) msg_len, &chunk);
+                    if (arc < 0) {
+                        /* Payload already consumed; cannot recover the stream. */
+                        mb_msg_term (&self->inmsg);
+                        mb_msg_init (&self->inmsg, 0);
+                        self->instate = MB_SWS_INSTATE_HDR;
+                        self->inpos = 0;
+                        self->payload_len = 0;
                         mb_sws_report_error (self);
-                        return set_rc;
+                        return arc;
                     }
+                    memcpy (chunk, body + 4, (size_t) msg_len);
+                    mb_msg_term (&self->inmsg);
+                    mb_msg_init_chunk (&self->inmsg, chunk);
                 } else {
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);
