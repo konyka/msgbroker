@@ -785,6 +785,118 @@ static void test_pub_poll_polout_after_backpressure (void)
     printf ("  test_pub_poll_polout_after_backpressure: PASSED\n");
 }
 
+struct tcp_outbuf_peer_args {
+    int fd;
+    size_t expect;
+    int ok;
+};
+
+/* Peer: recv large request then reply — drives kernel drain of sender outbuf. */
+static void tcp_outbuf_peer_thread (void *arg)
+{
+    struct tcp_outbuf_peer_args *a = (struct tcp_outbuf_peer_args *) arg;
+    char *buf;
+    int rc;
+
+    buf = (char *) malloc (a->expect);
+    assert (buf != NULL);
+    rc = mb_recv (a->fd, buf, a->expect, 0);
+    a->ok = (rc == (int) a->expect);
+    free (buf);
+    if (a->ok) {
+        rc = mb_send (a->fd, "ACK", 3, 0);
+        a->ok = (rc == 3);
+    }
+}
+
+/*  POLLIN-only wait must still flush a large TCP outbuf (no sticky deadlock). */
+static void test_tcp_outbuf_flush_via_pollin (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int bufsz = 4096;
+    int maxsz = 128 * 1024;
+    size_t n = 64 * 1024;
+    char *payload;
+    char rbuf[16];
+    struct mb_pollfd fds[1];
+    struct mb_thread thr;
+    struct tcp_outbuf_peer_args args;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVMAXSIZE, &maxsz, sizeof (maxsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVMAXSIZE, &maxsz, sizeof (maxsz));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18899");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18899");
+    assert (rc >= 0);
+    usleep (100000);
+
+    args.fd = s1;
+    args.expect = n;
+    args.ok = 0;
+    mb_thread_init (&thr);
+    rc = mb_thread_start (&thr, tcp_outbuf_peer_thread, &args);
+    assert (rc == 0);
+    usleep (50000);
+
+    payload = (char *) malloc (n);
+    assert (payload != NULL);
+    memset (payload, 'Q', n);
+    rc = mb_send (s2, payload, n, 0);
+    assert (rc == (int) n);
+    free (payload);
+
+    /* Only POLLIN — must still advance outbuf via has_msg flush. */
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = s2;
+    fds[0].events = MB_POLLIN;
+    {
+        int woke = 0;
+        for (i = 0; i < 100; ++i) {
+            fds[0].revents = 0;
+            rc = mb_poll (fds, 1, 50);
+            if (rc >= 1 && (fds[0].revents & MB_POLLIN)) {
+                woke = 1;
+                break;
+            }
+        }
+        assert (woke);
+    }
+
+    rc = mb_recv (s2, rbuf, sizeof (rbuf), 0);
+    assert (rc == 3);
+    assert (memcmp (rbuf, "ACK", 3) == 0);
+
+    mb_thread_join (&thr);
+    mb_thread_term (&thr);
+    assert (args.ok);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+
+    printf ("  test_tcp_outbuf_flush_via_pollin: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -802,6 +914,7 @@ int main (void)
     test_bus_poll_polout_after_backpressure ();
     test_xsurveyor_poll_polout_after_backpressure ();
     test_pub_poll_polout_after_backpressure ();
+    test_tcp_outbuf_flush_via_pollin ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }

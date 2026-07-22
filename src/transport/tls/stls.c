@@ -42,6 +42,12 @@ static int mb_stls_has_msg (struct mb_pipebase *base)
         return 1;
     if (!self->ssl || self->disconnected)
         return 0;
+
+    /* Match sipc: event-driven POLLIN must still drain pending outbuf. */
+    rc = mb_stls_flush_outbuf (self);
+    if (rc < 0 && rc != -EAGAIN)
+        return 0;
+
     if (SSL_pending (self->ssl) > 0)
         return 1;
 

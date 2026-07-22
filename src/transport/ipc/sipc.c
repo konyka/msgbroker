@@ -47,6 +47,12 @@ static int mb_sipc_has_msg (struct mb_pipebase *base)
     if (self->fd < 0 || self->disconnected)
         return 0;
 
+    /* POLLIN-only waiters never call can_send; flush pending outbuf here so
+     * a large send can finish while the peer is still reading. */
+    rc = mb_sipc_flush_outbuf (self);
+    if (rc < 0 && rc != -EAGAIN)
+        return 0;
+
     pfd.fd = self->fd;
     pfd.events = POLLIN;
     rc = poll (&pfd, 1, 0);
