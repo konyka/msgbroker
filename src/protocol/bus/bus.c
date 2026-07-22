@@ -80,16 +80,15 @@ static int mb_bus_events (struct mb_sockbase *self)
     int ev = 0;
     struct mb_list_item *it;
 
-    if (mb_list_begin (&bus->pipes) != mb_list_end (&bus->pipes))
-        ev |= MB_SOCKBASE_EVENT_OUT;
-
     for (it = mb_list_begin (&bus->pipes); it != mb_list_end (&bus->pipes);
          it = mb_list_next (&bus->pipes, it)) {
         struct mb_bus_pipe_data *data = (struct mb_bus_pipe_data *) it;
-        if (mb_pipe_has_msg (data->pipe)) {
+        if (!(ev & MB_SOCKBASE_EVENT_OUT) && mb_pipe_can_send (data->pipe))
+            ev |= MB_SOCKBASE_EVENT_OUT;
+        if (mb_pipe_has_msg (data->pipe))
             ev |= MB_SOCKBASE_EVENT_IN;
+        if ((ev & MB_SOCKBASE_EVENT_IN) && (ev & MB_SOCKBASE_EVENT_OUT))
             break;
-        }
     }
     return ev;
 }

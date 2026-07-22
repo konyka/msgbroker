@@ -85,7 +85,9 @@ static int mb_respondent_events (struct mb_sockbase *self)
     struct mb_list_item *it;
 
     if (resp->last_pipe) {
-        ev |= MB_SOCKBASE_EVENT_OUT;
+        /* Match REP/PAIR: OUT only when the reply pipe can accept a send. */
+        if (mb_pipe_can_send (resp->last_pipe))
+            ev |= MB_SOCKBASE_EVENT_OUT;
         return ev;
     }
 
