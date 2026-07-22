@@ -147,6 +147,78 @@ static void test_tcp_send_oversized (void)
     printf ("  test_tcp_send_oversized: PASSED\n");
 }
 
+/*  MB_RCVMAXSIZE must apply on the wire (not only as a stored option). */
+static void test_tcp_rcvmaxsize (void)
+{
+    int s1, s2;
+    int rc;
+    int max = 1024;
+    int raised = 2 * 1024 * 1024;
+    char *buf;
+    size_t n = 2048;
+    char rbuf[16];
+
+    buf = (char *) malloc (n);
+    assert (buf != NULL);
+    memset (buf, 'y', n);
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVMAXSIZE, &max, sizeof (max));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18897");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18897");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_send (s2, buf, n, 0);
+    assert (rc == -1);
+    assert (mb_errno () == EMSGSIZE);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVMAXSIZE, &raised,
+        sizeof (raised));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVMAXSIZE, &raised,
+        sizeof (raised));
+    assert (rc == 0);
+
+    {
+        size_t big = 1024 * 1024 + 1;
+        char *bigbuf = (char *) malloc (big);
+        assert (bigbuf != NULL);
+        memset (bigbuf, 'z', big);
+        rc = mb_send (s2, bigbuf, big, 0);
+        assert (rc == (int) big);
+        free (bigbuf);
+    }
+
+    usleep (100000);
+    {
+        char *got = (char *) malloc (1024 * 1024 + 1);
+        assert (got != NULL);
+        rc = mb_recv (s1, got, 1024 * 1024 + 1, 0);
+        assert (rc == 1024 * 1024 + 1);
+        free (got);
+    }
+
+    rc = mb_send (s2, "ok", 2, 0);
+    assert (rc == 2);
+    usleep (50000);
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), 0);
+    assert (rc == 2);
+
+    free (buf);
+    mb_close (s1);
+    mb_close (s2);
+    printf ("  test_tcp_rcvmaxsize: PASSED\n");
+}
+
 static void test_tcp_connect_refused (void)
 {
     int s;
@@ -630,6 +702,7 @@ int main (void)
     test_tcp_bind_connect ();
     test_tcp_large_message ();
     test_tcp_send_oversized ();
+    test_tcp_rcvmaxsize ();
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();

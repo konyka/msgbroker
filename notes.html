@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-147 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-148 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1941,6 +1941,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>surveyor</b>: deadline sets <code>timed_out</code>; recv returns <code>ETIMEDOUT</code> once</li>
 <li>[x] test: <code>test_survey_deadline_etimedout</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 148 — Honor MB_RCVMAXSIZE on the Wire</h2>
+<span class="status done">DONE</span>
+<p><code>MB_RCVMAXSIZE</code> could be set/get, but sipc/stls/sws still hard-coded a 1MB cap — tightening or raising the limit had no effect. Enforce via <code>mb_sock_msg_too_large</code> (<code>-1</code> = unlimited).</p>
+<ul>
+<li>[x] <b>sipc/stls/sws</b>: send/recv use sock <code>rcvmaxsize</code></li>
+<li>[x] test: <code>test_tcp_rcvmaxsize</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

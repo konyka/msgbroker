@@ -100,5 +100,7 @@ void mb_sock_stat_increment (struct mb_sock *self, int name, int increment);
 uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat);
 int mb_sock_hold (struct mb_sock *self);
 void mb_sock_rele (struct mb_sock *self);
+/* 1 if size exceeds MB_RCVMAXSIZE (-1 = unlimited). */
+int mb_sock_msg_too_large (struct mb_sock *self, size_t size);
 
 #endif

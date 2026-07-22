@@ -267,7 +267,7 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
     {
         size_t body_size = mb_chunkref_size (&msg->body);
 
-        if (body_size > 1024 * 1024)
+        if (mb_sock_msg_too_large (base->sock, body_size))
             return -EMSGSIZE;
 
         self->outlen = (int) (MB_SIPC_HDR_SIZE + body_size);
@@ -336,7 +336,7 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
             return -EAGAIN;
 
         body_size = mb_wire_get_uint32 (self->inhdr);
-        if (body_size > 1024 * 1024) {
+        if (mb_sock_msg_too_large (base->sock, (size_t) body_size)) {
             mb_sipc_report_error (self);
             return -EMSGSIZE;
         }

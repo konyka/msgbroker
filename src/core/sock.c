@@ -543,3 +543,12 @@ static void mb_sock_shutdown (struct mb_fsm *fsm, int src, int type,
         mb_sock_stopped (self);
     }
 }
+
+int mb_sock_msg_too_large (struct mb_sock *self, size_t size)
+{
+    int max = self ? self->rcvmaxsize : 1024 * 1024;
+
+    if (max < 0)
+        return 0;
+    return size > (size_t) max;
+}

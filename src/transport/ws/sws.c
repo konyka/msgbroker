@@ -458,7 +458,7 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         size_t payload_len;
 
         body_len = mb_chunkref_size (&msg->body);
-        if (body_len > 1024 * 1024)
+        if (mb_sock_msg_too_large (base->sock, body_len))
             return -EMSGSIZE;
         mb_wire_put_uint32 (hdr, (uint32_t) body_len);
         payload_len = 4 + body_len;
@@ -635,9 +635,10 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 }
 
                 mb_msg_term (&self->inmsg);
-                /* payload = 4-byte length prefix + body; cap body at 1MB */
+                /* payload = 4-byte length prefix + body */
                 if (self->payload_len < 4 ||
-                    self->payload_len > 4 + 1024 * 1024) {
+                    mb_sock_msg_too_large (base->sock,
+                        (size_t) (self->payload_len - 4))) {
                     mb_sws_report_error (self);
                     return -EMSGSIZE;
                 }
@@ -747,7 +748,7 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
             {
                 uint32_t msg_len = mb_wire_get_uint32 (body);
                 if (msg_len > (uint32_t) (self->payload_len - 4) ||
-                    msg_len > 1024 * 1024) {
+                    mb_sock_msg_too_large (base->sock, (size_t) msg_len)) {
                     mb_msg_term (&self->inmsg);
                     mb_msg_init (&self->inmsg, 0);
                     mb_sws_report_error (self);
