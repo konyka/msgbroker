@@ -1,6 +1,5 @@
 #include "pool.h"
 #include "msg.h"
-#include "../utils/alloc.h"
 
 #include <stddef.h>
 
@@ -20,21 +19,19 @@ void mb_mempool_term (struct mb_mempool *self)
 
 void *mb_mempool_alloc_msg (struct mb_mempool *self)
 {
-    void *msg = mb_slab_alloc (&self->msg_slab);
-    if (!msg)
-        msg = mb_alloc (sizeof (struct mb_msg));
-    return msg;
+    /* Slab-only: heap fallback cannot be freed safely via mb_slab_free. */
+    return mb_slab_alloc (&self->msg_slab);
 }
 
 void mb_mempool_free_msg (struct mb_mempool *self, void *msg)
 {
+    if (!msg)
+        return;
     mb_slab_free (&self->msg_slab, msg);
 }
 
 void *mb_mempool_alloc (struct mb_mempool *self, size_t size)
 {
-    void *ptr = mb_arena_alloc (&self->arena, size);
-    if (!ptr)
-        ptr = mb_alloc (size);
-    return ptr;
+    /* Arena-only: heap fallback would leak on mb_mempool_term. */
+    return mb_arena_alloc (&self->arena, size);
 }
