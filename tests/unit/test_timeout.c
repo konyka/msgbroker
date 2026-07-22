@@ -70,6 +70,60 @@ static void test_timeout_send (void)
     printf ("  timeout_send: OK\n");
 }
 
+static void test_timeout_sendmsg_recvmsg (void)
+{
+    int s, rc;
+    int val;
+    char payload[] = "X";
+    char rbuf[16];
+    struct mb_iovec iov;
+    struct mb_msghdr hdr;
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+
+    memset (&hdr, 0, sizeof (hdr));
+    iov.iov_base = rbuf;
+    iov.iov_len = sizeof (rbuf);
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    rc = mb_recvmsg (s, &hdr, MB_DONTWAIT);
+    assert (rc == -1);
+    assert (mb_errno () == EAGAIN);
+
+    memset (&hdr, 0, sizeof (hdr));
+    iov.iov_base = payload;
+    iov.iov_len = 1;
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    rc = mb_sendmsg (s, &hdr, MB_DONTWAIT);
+    assert (rc == -1);
+    assert (mb_errno () == EAGAIN);
+
+    val = 10;
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_SNDTIMEO, &val, sizeof (val));
+    assert (rc == 0);
+    rc = mb_sendmsg (s, &hdr, 0);
+    assert (rc == -1);
+    assert (mb_errno () == EAGAIN);
+
+    val = 10;
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVTIMEO, &val, sizeof (val));
+    assert (rc == 0);
+    memset (&hdr, 0, sizeof (hdr));
+    iov.iov_base = rbuf;
+    iov.iov_len = sizeof (rbuf);
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    rc = mb_recvmsg (s, &hdr, 0);
+    assert (rc == -1);
+    assert (mb_errno () == EAGAIN);
+
+    mb_close (s);
+
+    printf ("  timeout_sendmsg_recvmsg: OK\n");
+}
+
 static void test_version (void)
 {
     assert (mb_version_major () == MB_VERSION_MAJOR);
@@ -86,6 +140,7 @@ int main (void)
     test_dontwait_eagain ();
     test_timeout_recv ();
     test_timeout_send ();
+    test_timeout_sendmsg_recvmsg ();
     test_version ();
     printf ("test_timeout: PASSED\n");
     return 0;

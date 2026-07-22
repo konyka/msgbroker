@@ -623,40 +623,23 @@ int mb_recv (int s, void *buf, size_t len, int flags)
     return (int) msglen;
 }
 
-int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
+static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghdr,
+    size_t *total_out)
 {
-    int rc;
-    struct mb_sock *sock;
-    struct mb_msg msg;
     size_t total;
     int i;
     char *ptr;
     struct mb_cmsghdr *cmsg;
 
-    (void) flags;
-
-    if (!msghdr || msghdr->msg_iovlen < 0) {
-        mb_err_set_errno (EINVAL);
-        return -1;
-    }
-
-    rc = mb_global_hold_socket (&sock, s);
-    if (rc < 0) {
-        mb_err_set_errno (-rc);
-        return -1;
-    }
-
     total = 0;
     for (i = 0; i < msghdr->msg_iovlen; i++)
         total += msghdr->msg_iov[i].iov_len;
 
-    mb_msg_init (&msg, total);
-    ptr = (char *) mb_chunkref_data (&msg.body);
+    mb_msg_init (msg, total);
+    ptr = (char *) mb_chunkref_data (&msg->body);
     if (total > MB_CHUNKREF_MAX && !ptr) {
-        mb_msg_term (&msg);
-        mb_global_rele_socket (sock);
-        mb_err_set_errno (ENOMEM);
-        return -1;
+        mb_msg_term (msg);
+        return -ENOMEM;
     }
     for (i = 0; i < msghdr->msg_iovlen; i++) {
         if (msghdr->msg_iov[i].iov_len > 0) {
@@ -672,18 +655,80 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
             if (cmsg->cmsg_level == PROTO_SP && cmsg->cmsg_type == SP_HDR) {
                 size_t hdrlen = cmsg->cmsg_len - MB_CMSG_LEN (0);
                 if (hdrlen > 0) {
-                    mb_chunkref_term (&msg.sphdr);
-                    mb_chunkref_init (&msg.sphdr, hdrlen);
-                    memcpy (mb_chunkref_data (&msg.sphdr),
+                    mb_chunkref_term (&msg->sphdr);
+                    mb_chunkref_init (&msg->sphdr, hdrlen);
+                    memcpy (mb_chunkref_data (&msg->sphdr),
                         MB_CMSG_DATA (cmsg), hdrlen);
                 }
             }
         }
     }
 
-    rc = mb_sock_send (sock, &msg);
-    mb_msg_term (&msg);
+    if (total_out)
+        *total_out = total;
+    return 0;
+}
 
+int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
+{
+    int rc;
+    struct mb_sock *sock;
+    struct mb_msg msg;
+    size_t total;
+    int timeout;
+
+    if (!msghdr || msghdr->msg_iovlen < 0) {
+        mb_err_set_errno (EINVAL);
+        return -1;
+    }
+
+    rc = mb_global_hold_socket (&sock, s);
+    if (rc < 0) {
+        mb_err_set_errno (-rc);
+        return -1;
+    }
+
+    timeout = sock->sndtimeo;
+
+    rc = mb_msg_from_msghdr (&msg, msghdr, &total);
+    if (rc < 0) {
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (-rc);
+        return -1;
+    }
+
+    for (;;) {
+        rc = mb_sock_send (sock, &msg);
+        if (rc >= 0)
+            break;
+        if (rc != -EAGAIN)
+            break;
+        mb_msg_term (&msg);
+        if (flags & MB_DONTWAIT || timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            mb_msleep (1);
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (EAGAIN);
+                return -1;
+            }
+        } else {
+            mb_msleep (1);
+        }
+        rc = mb_msg_from_msghdr (&msg, msghdr, &total);
+        if (rc < 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (-rc);
+            return -1;
+        }
+    }
+
+    mb_msg_term (&msg);
     mb_global_rele_socket (sock);
 
     if (rc < 0) {
@@ -704,8 +749,7 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
     const char *ptr;
     size_t sphdrlen;
     struct mb_cmsghdr *cmsg;
-
-    (void) flags;
+    int timeout;
 
     if (!msghdr || msghdr->msg_iovlen < 0) {
         mb_err_set_errno (EINVAL);
@@ -718,16 +762,39 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
         return -1;
     }
 
-    mb_msg_init (&msg, 0);
-    rc = mb_sock_recv (sock, &msg);
+    timeout = sock->rcvtimeo;
+
+    for (;;) {
+        mb_msg_init (&msg, 0);
+        rc = mb_sock_recv (sock, &msg);
+
+        if (rc >= 0)
+            break;
+        mb_msg_term (&msg);
+        if (rc != -EAGAIN) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (-rc);
+            return -1;
+        }
+        if (flags & MB_DONTWAIT || timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            mb_msleep (1);
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (EAGAIN);
+                return -1;
+            }
+        } else {
+            mb_msleep (1);
+        }
+    }
 
     mb_global_rele_socket (sock);
-
-    if (rc < 0) {
-        mb_msg_term (&msg);
-        mb_err_set_errno (-rc);
-        return -1;
-    }
 
     msglen = mb_chunkref_size (&msg.body);
     ptr = (const char *) mb_chunkref_data (&msg.body);
