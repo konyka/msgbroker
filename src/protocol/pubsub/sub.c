@@ -16,13 +16,53 @@ struct mb_sub {
     struct mb_sockbase base;
     struct mb_fq fq;
     struct mb_trie subscriptions;
+    struct mb_msg pending;
+    int has_pending;
     int has_subscriptions;
     int nsubs;
 };
 
+static int mb_sub_msg_matches (struct mb_sub *sub, struct mb_msg *msg)
+{
+    if (!sub->has_subscriptions)
+        return 0;
+    return mb_trie_match (&sub->subscriptions,
+        mb_chunkref_data (&msg->body),
+        mb_chunkref_size (&msg->body));
+}
+
+/* Drop non-deliverable fq messages; stash the first match in pending. */
+static int mb_sub_pull_deliverable (struct mb_sub *sub)
+{
+    struct mb_msg msg;
+    int rc;
+
+    if (sub->has_pending)
+        return 1;
+
+    mb_msg_init (&msg, 0);
+    for (;;) {
+        rc = mb_fq_recv (&sub->fq, &msg);
+        if (rc < 0) {
+            mb_msg_term (&msg);
+            return 0;
+        }
+        if (mb_sub_msg_matches (sub, &msg)) {
+            mb_msg_mv (&sub->pending, &msg);
+            mb_msg_init (&msg, 0);
+            sub->has_pending = 1;
+            return 1;
+        }
+        mb_msg_term (&msg);
+        mb_msg_init (&msg, 0);
+    }
+}
+
 static void mb_sub_destroy (struct mb_sockbase *self)
 {
     struct mb_sub *sub = (struct mb_sub *) self;
+    if (sub->has_pending)
+        mb_msg_term (&sub->pending);
     mb_fq_term (&sub->fq);
     mb_trie_term (&sub->subscriptions);
     mb_free (sub);
@@ -71,7 +111,10 @@ static int mb_sub_events (struct mb_sockbase *self)
 {
     struct mb_sub *sub = (struct mb_sub *) self;
     int ev = 0;
-    if (mb_fq_can_recv (&sub->fq))
+
+    /* IN only when a filter-matching message is deliverable — not merely
+     * when fq has bytes (would sticky-POLLIN on unmatched topics). */
+    if (mb_sub_pull_deliverable (sub))
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
 }
@@ -79,25 +122,14 @@ static int mb_sub_events (struct mb_sockbase *self)
 static int mb_sub_recv (struct mb_sockbase *self, struct mb_msg *msg)
 {
     struct mb_sub *sub = (struct mb_sub *) self;
-    int rc;
 
-    for (;;) {
-        rc = mb_fq_recv (&sub->fq, msg);
-        if (rc < 0)
-            return rc;
+    if (!mb_sub_pull_deliverable (sub))
+        return -EAGAIN;
 
-        /* No interest registered: drop (nanomsg/nng). Empty subscription
-         * (len 0) marks the trie root and matches all topics. */
-        if (sub->has_subscriptions &&
-            mb_trie_match (&sub->subscriptions,
-                mb_chunkref_data (&msg->body),
-                mb_chunkref_size (&msg->body)))
-            return 0;
-
-        /* Drop unmatched / unsubscribed traffic and keep scanning. */
-        mb_msg_term (msg);
-        mb_msg_init (msg, 0);
-    }
+    mb_msg_mv (msg, &sub->pending);
+    mb_msg_init (&sub->pending, 0);
+    sub->has_pending = 0;
+    return 0;
 }
 
 static int mb_sub_setopt (struct mb_sockbase *self, int level, int option,
@@ -171,6 +203,8 @@ static int mb_sub_create (void *hint, struct mb_sockbase **sockbase)
     mb_sockbase_init (&sub->base, &mb_sub_vfptr, NULL);
     mb_fq_init (&sub->fq);
     mb_trie_init (&sub->subscriptions);
+    mb_msg_init (&sub->pending, 0);
+    sub->has_pending = 0;
     sub->has_subscriptions = 0;
     sub->nsubs = 0;
 

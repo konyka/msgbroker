@@ -178,6 +178,62 @@ static void test_sub_empty_subscribe_all (void)
     printf ("  test_sub_empty_subscribe_all: PASSED\n");
 }
 
+/*  Unmatched queued topics must not advertise POLLIN. */
+static void test_sub_filter_poll_no_pollin (void)
+{
+    int pub, sub;
+    int rc;
+    char buf[64];
+    struct mb_pollfd fds[1];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "sport", 5);
+    assert (rc == 0);
+
+    rc = mb_bind (pub, "inproc://sub_poll_filter");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://sub_poll_filter");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_send (pub, "news:breaking", 13, 0);
+    assert (rc == 13);
+    usleep (50000);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = sub;
+    fds[0].events = MB_POLLIN;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLIN));
+
+    rc = mb_recv (sub, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_send (pub, "sport:football", 14, 0);
+    assert (rc == 14);
+    usleep (50000);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLIN);
+
+    rc = mb_recv (sub, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc == 14);
+    assert (memcmp (buf, "sport:football", 14) == 0);
+
+    mb_close (sub);
+    mb_close (pub);
+
+    printf ("  test_sub_filter_poll_no_pollin: PASSED\n");
+}
+
 /*  XSUB must be able to send subscription traffic upstream (not permanent EAGAIN). */
 static void test_xsub_send (void)
 {
@@ -217,6 +273,7 @@ int main (void)
     test_sub_filter_dontwait_skip ();
     test_sub_no_subscribe_drops ();
     test_sub_empty_subscribe_all ();
+    test_sub_filter_poll_no_pollin ();
     test_xsub_send ();
 
     printf ("\nAll pubsub filter tests PASSED\n");
