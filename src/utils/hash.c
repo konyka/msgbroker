@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 static uint32_t mb_hash_fn (uint32_t key)
@@ -22,6 +23,8 @@ int mb_hash_init (struct mb_hash *self, size_t nbuckets)
 
     if (nbuckets == 0)
         return -EINVAL;
+    if (nbuckets > SIZE_MAX / sizeof (struct mb_hash_item *))
+        return -ENOMEM;
 
     self->buckets = (struct mb_hash_item **) mb_alloc (
         nbuckets * sizeof (struct mb_hash_item *));

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
 
 struct test_item {
     uint32_t key;
@@ -70,6 +72,15 @@ int main (void)
             printf ("  hash_init_oom: SKIPPED\n");
         }
     }
+
+    /* size_t wrap must not succeed with a tiny bucket array. */
+    assert (mb_hash_init (&h, SIZE_MAX) == -ENOMEM);
+    assert (mb_hash_find (&h, 1) == NULL);
+    mb_hash_term (&h);
+    assert (mb_hash_init (&h,
+        SIZE_MAX / sizeof (struct mb_hash_item *) + 1) == -ENOMEM);
+    mb_hash_term (&h);
+    printf ("  hash_size_overflow: OK\n");
 
     printf ("test_hash: PASSED\n");
     return 0;
