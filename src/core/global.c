@@ -539,7 +539,7 @@ int mb_send (int s, const void *buf, size_t len, int flags)
             timeout -= 1;
             if (timeout <= 0) {
                 mb_global_rele_socket (sock);
-                mb_err_set_errno (EAGAIN);
+                mb_err_set_errno (ETIMEDOUT);
                 return -1;
             }
         } else {
@@ -604,7 +604,7 @@ int mb_recv (int s, void *buf, size_t len, int flags)
             timeout -= 1;
             if (timeout <= 0) {
                 mb_global_rele_socket (sock);
-                mb_err_set_errno (EAGAIN);
+                mb_err_set_errno (ETIMEDOUT);
                 return -1;
             }
         } else {
@@ -727,7 +727,7 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
             timeout -= 1;
             if (timeout <= 0) {
                 mb_global_rele_socket (sock);
-                mb_err_set_errno (EAGAIN);
+                mb_err_set_errno (ETIMEDOUT);
                 return -1;
             }
         } else {
@@ -799,7 +799,7 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
             timeout -= 1;
             if (timeout <= 0) {
                 mb_global_rele_socket (sock);
-                mb_err_set_errno (EAGAIN);
+                mb_err_set_errno (ETIMEDOUT);
                 return -1;
             }
         } else {

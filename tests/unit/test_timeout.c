@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -42,7 +43,7 @@ static void test_timeout_recv (void)
 
     rc = mb_recv (s, buf, sizeof (buf), 0);
     assert (rc == -1);
-    assert (mb_errno () == EAGAIN);
+    assert (mb_errno () == ETIMEDOUT);
 
     mb_close (s);
 
@@ -63,7 +64,7 @@ static void test_timeout_send (void)
 
     rc = mb_send (s, "X", 1, 0);
     assert (rc == -1);
-    assert (mb_errno () == EAGAIN);
+    assert (mb_errno () == ETIMEDOUT);
 
     mb_close (s);
 
@@ -105,7 +106,7 @@ static void test_timeout_sendmsg_recvmsg (void)
     assert (rc == 0);
     rc = mb_sendmsg (s, &hdr, 0);
     assert (rc == -1);
-    assert (mb_errno () == EAGAIN);
+    assert (mb_errno () == ETIMEDOUT);
 
     val = 10;
     rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVTIMEO, &val, sizeof (val));
@@ -117,7 +118,7 @@ static void test_timeout_sendmsg_recvmsg (void)
     hdr.msg_iovlen = 1;
     rc = mb_recvmsg (s, &hdr, 0);
     assert (rc == -1);
-    assert (mb_errno () == EAGAIN);
+    assert (mb_errno () == ETIMEDOUT);
 
     mb_close (s);
 
