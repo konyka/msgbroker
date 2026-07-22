@@ -29,6 +29,13 @@ int main (void)
     assert (r2 != NULL);
 
     mb_slab_term (&slab);
+
+    /* Huge freelist: alloc fails → empty slab, no crash. */
+    mb_slab_init (&slab, 64, (size_t) -1 / 4);
+    assert (mb_slab_alloc (&slab) == NULL);
+    mb_slab_term (&slab);
+    printf ("  slab_init_oom: OK\n");
+
     printf ("test_slab: PASSED\n");
     return 0;
 }

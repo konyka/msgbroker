@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-135 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-136 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1807,6 +1807,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>mb_arena_block_new</b>: NULL on OOM</li>
 <li>[x] test: <code>arena_init_oom</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 136 — Slab Init Guards OOM</h2>
+<span class="status done">DONE</span>
+<p><code>mb_slab_init</code> wrote through NULL freelist/objects on <code>mb_alloc</code> failure and could leave a half-filled table that <code>term</code> could not free safely. Guard allocs, keep only the successful prefix, and harden empty-slab <code>term</code>/<code>alloc</code>/<code>free</code>.</p>
+<ul>
+<li>[x] <b>mb_slab_init</b>: overflow + OOM safe; partial capacity on mid-failure</li>
+<li>[x] test: <code>slab_init_oom</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>
