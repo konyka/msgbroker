@@ -15,7 +15,7 @@ struct mb_hash {
     size_t count;
 };
 
-void mb_hash_init (struct mb_hash *self, size_t nbuckets);
+int mb_hash_init (struct mb_hash *self, size_t nbuckets);
 void mb_hash_term (struct mb_hash *self);
 void mb_hash_insert (struct mb_hash *self, uint32_t key,
     struct mb_hash_item *item);

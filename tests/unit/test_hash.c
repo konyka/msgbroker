@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <errno.h>
 
 struct test_item {
     uint32_t key;
@@ -16,7 +17,7 @@ int main (void)
     struct mb_hash h;
     struct test_item a, b, c;
 
-    mb_hash_init (&h, 16);
+    assert (mb_hash_init (&h, 16) == 0);
     assert (mb_hash_count (&h) == 0);
 
     a.key = 100; a.val = 1;
@@ -49,7 +50,27 @@ int main (void)
     ti = (struct test_item *) ((char *) hi - ((size_t) &((struct test_item *) 0)->item));
     assert (ti->val == 3);
 
-    printf ("test_hash: PASSED\n");
     mb_hash_term (&h);
+
+    assert (mb_hash_init (&h, 0) == -EINVAL);
+    assert (mb_hash_find (&h, 1) == NULL);
+    mb_hash_term (&h);
+
+    /* Huge bucket count: alloc fails → ENOMEM, no crash. */
+    {
+        size_t huge = ((size_t) -1 / 4) / sizeof (struct mb_hash_item *);
+        int rc = mb_hash_init (&h, huge);
+        if (rc == -ENOMEM) {
+            assert (mb_hash_find (&h, 1) == NULL);
+            mb_hash_term (&h);
+            printf ("  hash_init_oom: OK\n");
+        } else {
+            assert (rc == 0);
+            mb_hash_term (&h);
+            printf ("  hash_init_oom: SKIPPED\n");
+        }
+    }
+
+    printf ("test_hash: PASSED\n");
     return 0;
 }
