@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -85,6 +86,20 @@ int main (void)
     assert (!(fds[0].revents & MB_POLLOUT));
 
     mb_close (s1);
+
+    /* Dirty mb_errno, then force poll alloc failure → ENOMEM via mb_errno(). */
+    {
+        int s = mb_socket (AF_MB, MB_PAIR);
+        assert (s >= 0);
+        assert (mb_send (s, "x", 1, MB_DONTWAIT) == -1);
+        assert (mb_errno () == EAGAIN);
+        mb_close (s);
+
+        rc = mb_poll (NULL, INT_MAX / 2 + 1, 0);
+        assert (rc == -1);
+        assert (mb_errno () == ENOMEM);
+        printf ("  poll_oom_errno: OK\n");
+    }
 
     printf ("test_poll: PASSED\n");
     return 0;

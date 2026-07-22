@@ -1,11 +1,15 @@
 #include "../pal/sleep.h"
 #include "../pal/clock.h"
 #include "../utils/alloc.h"
+#include "../utils/err.h"
 
 #include <msgbroker/mb.h>
 
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #if !defined(_WIN32)
 #include <poll.h>
@@ -16,14 +20,16 @@
  * kernel data arrives, instead of sleeping the full timeout on a silent efd. */
 #define MB_POLL_SLICE_MS 50
 
-static int mb_errno_value;
-
 int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
 {
     int rc;
     int i;
     int res;
 
+    if (nfds < 0) {
+        mb_err_set_errno (EINVAL);
+        return -1;
+    }
     if (nfds == 0) {
         if (timeout > 0)
             mb_msleep (timeout);
@@ -39,25 +45,32 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
         int maxp;
         uint64_t start_ms;
 
+        /* Each socket may contribute rcvfd + sndfd; reject sizes that overflow. */
+        if (nfds > INT_MAX / 2 ||
+            (size_t) nfds > SIZE_MAX / (2 * sizeof (struct pollfd))) {
+            mb_err_set_errno (ENOMEM);
+            return -1;
+        }
+
         /* Each socket may contribute separate rcvfd and sndfd entries. */
         maxp = nfds * 2;
         pfd = (struct pollfd *) mb_alloc (
             sizeof (struct pollfd) * (size_t) maxp);
         if (!pfd) {
-            mb_errno_value = ENOMEM;
+            mb_err_set_errno (ENOMEM);
             return -1;
         }
         map_idx = (int *) mb_alloc (sizeof (int) * (size_t) maxp);
         if (!map_idx) {
             mb_free (pfd);
-            mb_errno_value = ENOMEM;
+            mb_err_set_errno (ENOMEM);
             return -1;
         }
         map_snd = (int *) mb_alloc (sizeof (int) * (size_t) maxp);
         if (!map_snd) {
             mb_free (map_idx);
             mb_free (pfd);
-            mb_errno_value = ENOMEM;
+            mb_err_set_errno (ENOMEM);
             return -1;
         }
 
@@ -138,6 +151,7 @@ int mb_poll (struct mb_pollfd *fds, int nfds, int timeout)
             }
 
             if (rc < 0) {
+                mb_err_set_errno (errno);
                 mb_free (map_snd);
                 mb_free (map_idx);
                 mb_free (pfd);
