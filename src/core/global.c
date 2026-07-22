@@ -632,8 +632,12 @@ static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghd
     struct mb_cmsghdr *cmsg;
 
     total = 0;
-    for (i = 0; i < msghdr->msg_iovlen; i++)
-        total += msghdr->msg_iov[i].iov_len;
+    for (i = 0; i < msghdr->msg_iovlen; i++) {
+        size_t n = msghdr->msg_iov[i].iov_len;
+        if (n > SIZE_MAX - total)
+            return -EMSGSIZE;
+        total += n;
+    }
 
     mb_msg_init (msg, total);
     ptr = (char *) mb_chunkref_data (&msg->body);
