@@ -11,11 +11,17 @@ void mb_msg_init (struct mb_msg *self, size_t size)
 
 void mb_msg_init_data (struct mb_msg *self, const void *data, size_t size)
 {
+    void *ptr;
+
     mb_chunkref_init (&self->sphdr, 0);
     mb_chunkref_init (&self->hdrs, 0);
     mb_chunkref_init (&self->body, size);
-    if (size > 0)
-        memcpy (mb_chunkref_data (&self->body), data, size);
+    if (size == 0)
+        return;
+    /* Heap alloc may fail for large bodies; leave body NULL for callers. */
+    ptr = mb_chunkref_data (&self->body);
+    if (ptr)
+        memcpy (ptr, data, size);
 }
 
 void mb_msg_init_chunk (struct mb_msg *self, void *chunk)

@@ -1,9 +1,35 @@
 #include "../../src/memory/msg.h"
+#include "../../src/memory/chunk.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <errno.h>
+
+static void test_init_data_oom (void)
+{
+    void *probe = NULL;
+    size_t huge = (size_t) -1 / 4;
+    char b = 'x';
+    struct mb_msg oom;
+    int arc;
+
+    /* Only exercise the OOM path when the platform rejects this size. */
+    arc = mb_chunk_alloc (huge, &probe);
+    if (arc != -ENOMEM) {
+        if (probe)
+            mb_chunk_free (probe);
+        printf ("  init_data_oom: SKIPPED\n");
+        return;
+    }
+
+    mb_msg_init_data (&oom, &b, huge);
+    assert (mb_chunkref_data (&oom.body) == NULL);
+    assert (mb_chunkref_size (&oom.body) == huge);
+    mb_msg_term (&oom);
+    printf ("  init_data_oom: OK\n");
+}
 
 int main (void)
 {
@@ -24,6 +50,8 @@ int main (void)
 
     mb_msg_term (&m2);
     mb_msg_term (&m3);
+
+    test_init_data_oom ();
 
     printf ("test_msg: PASSED\n");
     return 0;

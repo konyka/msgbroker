@@ -124,6 +124,24 @@ static void test_timeout_sendmsg_recvmsg (void)
     printf ("  timeout_sendmsg_recvmsg: OK\n");
 }
 
+static void test_send_oom_large_body (void)
+{
+    int s, rc;
+    char b = 'x';
+    /* Absurd length: malloc fails on common platforms; must return ENOMEM. */
+    size_t huge = (size_t) -1 / 4;
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+
+    rc = mb_send (s, &b, huge, MB_DONTWAIT);
+    assert (rc == -1);
+    assert (mb_errno () == ENOMEM);
+
+    mb_close (s);
+    printf ("  send_oom_large_body: OK\n");
+}
+
 static void test_version (void)
 {
     assert (mb_version_major () == MB_VERSION_MAJOR);
@@ -141,6 +159,7 @@ int main (void)
     test_timeout_recv ();
     test_timeout_send ();
     test_timeout_sendmsg_recvmsg ();
+    test_send_oom_large_body ();
     test_version ();
     printf ("test_timeout: PASSED\n");
     return 0;

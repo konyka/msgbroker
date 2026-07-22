@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-125 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-126 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1694,6 +1694,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sendmsg/recvmsg</b>: mirror send/recv retry loop (DONTWAIT / sndtimeo / rcvtimeo)</li>
 <li>[x] test: <code>test_timeout_sendmsg_recvmsg</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 126 — msg_init_data Skip memcpy on OOM</h2>
+<span class="status done">DONE</span>
+<p>Phase 18 guarded large <code>mb_send</code> bodies against NULL after alloc failure, but Phase 20's <code>mb_msg_init_data</code> memcpy'd before that check — heap OOM became SIGSEGV instead of <code>ENOMEM</code>.</p>
+<ul>
+<li>[x] <b>mb_msg_init_data</b>: skip memcpy when chunk alloc returns NULL</li>
+<li>[x] tests: <code>test_init_data_oom</code>, <code>test_send_oom_large_body</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>
