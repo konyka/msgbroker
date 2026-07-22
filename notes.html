@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-123 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-124 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -1672,6 +1672,17 @@ li { margin: 5px 0; }
 <li>[x] <b>sub pending</b>: drain/drop non-matches in events/recv; stash first deliverable message</li>
 <li>[x] <b>sub events</b>: IN only when a filter-matching message is ready</li>
 <li>[x] test: <code>test_sub_filter_poll_no_pollin</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 124 — Survey/XSUB OUT Require can_send</h2>
+<span class="status done">DONE</span>
+<p>Phase 122 fixed BUS/PAIR family; SURVEYOR/XSURVEYOR/XRESPONDENT/XSUB still advertised OUT whenever peers existed. Under TCP backpressure <code>mb_poll(POLLOUT)</code> stayed sticky-true.</p>
+<ul>
+<li>[x] <b>surveyor/xsurveyor/xrespondent/xsub events</b>: OUT via <code>mb_pipe_can_send</code></li>
+<li>[x] test: <code>test_xsurveyor_poll_polout_after_backpressure</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

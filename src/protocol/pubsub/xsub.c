@@ -54,9 +54,16 @@ static int mb_xsub_events (struct mb_sockbase *self)
 {
     struct mb_xsub *xp = (struct mb_xsub *) self;
     int ev = 0;
+    struct mb_list_item *it;
 
-    if (mb_list_begin (&xp->fq.pipes) != mb_list_end (&xp->fq.pipes))
-        ev |= MB_SOCKBASE_EVENT_OUT;
+    for (it = mb_list_begin (&xp->fq.pipes); it != mb_list_end (&xp->fq.pipes);
+         it = mb_list_next (&xp->fq.pipes, it)) {
+        struct mb_fq_data *data = (struct mb_fq_data *) it;
+        if (mb_pipe_can_send (data->pipe)) {
+            ev |= MB_SOCKBASE_EVENT_OUT;
+            break;
+        }
+    }
     if (mb_fq_can_recv (&xp->fq))
         ev |= MB_SOCKBASE_EVENT_IN;
     return ev;
