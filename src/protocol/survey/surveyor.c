@@ -23,6 +23,7 @@ struct mb_surveyor {
     struct mb_sockbase base;
     struct mb_list pipes;
     int surveying;
+    int timed_out; /* one-shot: deadline closed the last survey */
     int deadline_ms;
     uint64_t survey_expire_ms;
 };
@@ -56,6 +57,7 @@ static void mb_surveyor_check_deadline (struct mb_surveyor *sv)
         return;
     if (mb_clock_ms () >= sv->survey_expire_ms) {
         sv->surveying = 0;
+        sv->timed_out = 1;
         mb_surveyor_drain (sv);
     }
 }
@@ -191,6 +193,7 @@ static int mb_surveyor_send (struct mb_sockbase *self, struct mb_msg *msg)
         return -EAGAIN;
 
     sv->surveying = 1;
+    sv->timed_out = 0;
     if (sv->deadline_ms > 0)
         sv->survey_expire_ms = mb_clock_ms () + (uint64_t) sv->deadline_ms;
     else
@@ -205,8 +208,13 @@ static int mb_surveyor_recv (struct mb_sockbase *self, struct mb_msg *msg)
 
     mb_surveyor_check_deadline (sv);
 
-    if (!sv->surveying)
+    if (!sv->surveying) {
+        if (sv->timed_out) {
+            sv->timed_out = 0;
+            return -ETIMEDOUT;
+        }
         return -EFSM;
+    }
 
     for (it = mb_list_begin (&sv->pipes);
          it != mb_list_end (&sv->pipes); ) {
@@ -300,6 +308,7 @@ static int mb_surveyor_create (void *hint, struct mb_sockbase **sockbase)
     mb_sockbase_init (&sv->base, &mb_surveyor_vfptr, NULL);
     mb_list_init (&sv->pipes);
     sv->surveying = 0;
+    sv->timed_out = 0;
     sv->deadline_ms = MB_SURVEYOR_DEFAULT_DEADLINE_MS;
     sv->survey_expire_ms = 0;
 

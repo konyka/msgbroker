@@ -241,6 +241,65 @@ static void test_surveyor_deadline_getopt (void)
     printf ("  test_surveyor_deadline_getopt: PASSED\n");
 }
 
+/*  Survey deadline must surface as ETIMEDOUT (once), then EFSM. */
+static void test_survey_deadline_etimedout (void)
+{
+    int sv, rs;
+    int rc;
+    int deadline = 50;
+    char buf[64];
+
+    sv = mb_socket (AF_MB, MB_SURVEYOR);
+    assert (sv >= 0);
+    rs = mb_socket (AF_MB, MB_RESPONDENT);
+    assert (rs >= 0);
+
+    rc = mb_setsockopt (sv, MB_SURVEYOR, MB_SURVEYOR_DEADLINE,
+        &deadline, sizeof (deadline));
+    assert (rc == 0);
+
+    rc = mb_bind (sv, "inproc://survey_deadline");
+    assert (rc >= 0);
+    rc = mb_connect (rs, "inproc://survey_deadline");
+    assert (rc >= 0);
+
+    rc = mb_send (sv, "Q", 1, 0);
+    assert (rc == 1);
+    rc = mb_recv (rs, buf, sizeof (buf), 0);
+    assert (rc == 1);
+
+    usleep (80000); /* past deadline; respondent never answers */
+
+    rc = mb_recv (sv, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == ETIMEDOUT);
+
+    rc = mb_recv (sv, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EFSM);
+
+    /* Clear respondent reply state, then a new survey still works. */
+    rc = mb_send (rs, "late", 4, 0);
+    assert (rc == 4);
+    rc = mb_send (sv, "Q2", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (rs, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "Q2", 2) == 0);
+    rc = mb_send (rs, "A2", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (sv, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "A2", 2) == 0);
+
+    rc = mb_close (sv);
+    assert (rc == 0);
+    rc = mb_close (rs);
+    assert (rc == 0);
+
+    printf ("  test_survey_deadline_etimedout: PASSED\n");
+}
+
 static void test_survey_deadline_stale_reply (void)
 {
     int sv, rs;
@@ -615,6 +674,7 @@ int main (void)
     test_survey_fsm ();
     test_respondent_send_before_recv ();
     test_surveyor_deadline_getopt ();
+    test_survey_deadline_etimedout ();
     test_survey_deadline_stale_reply ();
     test_survey_send_no_peers ();
     test_xsurveyor_send_no_peers ();
