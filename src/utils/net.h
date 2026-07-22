@@ -27,5 +27,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
 int mb_net_unix_connect_while (const char *path, volatile int *running,
     int timeout_ms);
 int mb_net_bind (const char *host, uint16_t port, int backlog);
+/* Best-effort: apply MB_SNDBUF/MB_RCVBUF to a stream fd (values <=0 skipped). */
+void mb_net_apply_bufs (int fd, int sndbuf, int rcvbuf);
 
 #endif

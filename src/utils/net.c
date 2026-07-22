@@ -298,6 +298,16 @@ int mb_net_unix_connect_while (const char *path, volatile int *running,
     return -ETIMEDOUT;
 }
 
+void mb_net_apply_bufs (int fd, int sndbuf, int rcvbuf)
+{
+    if (fd < 0)
+        return;
+    if (sndbuf > 0)
+        (void) setsockopt (fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof (sndbuf));
+    if (rcvbuf > 0)
+        (void) setsockopt (fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof (rcvbuf));
+}
+
 int mb_net_bind (const char *host, uint16_t port, int backlog)
 {
     struct addrinfo hints;

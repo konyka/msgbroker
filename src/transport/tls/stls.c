@@ -4,6 +4,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
+#include "../../utils/net.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
 #include "../../pal/clock.h"
@@ -125,8 +126,14 @@ static int mb_stls_recv_ssl (SSL *ssl, void *buf, size_t len)
 
 int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl)
 {
+    struct mb_sock *sock;
+    int fd;
+
     self->ssl = ssl;
     mb_pipebase_init (&self->pipebase, &mb_stls_vfptr, ep);
+    sock = mb_ep_sock (ep);
+    fd = ssl ? SSL_get_fd (ssl) : -1;
+    mb_net_apply_bufs (fd, sock->sndbuf, sock->rcvbuf);
     mb_list_item_init (&self->item);
     self->inpos = 0;
     self->inlen = 0;

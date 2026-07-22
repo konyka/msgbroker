@@ -76,8 +76,10 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
     self->eid = 1;
     self->holds = 2;
 
-    self->sndbuf = 128 * 1024;
-    self->rcvbuf = 128 * 1024;
+    /* Match default RCVMAXSIZE so a max-sized msg can sit in the kernel
+     * buffer while sipc/stls/sws finish a non-blocking outbuf flush. */
+    self->sndbuf = 1024 * 1024;
+    self->rcvbuf = 1024 * 1024;
     self->rcvmaxsize = 1024 * 1024;
     self->sndtimeo = -1;
     self->rcvtimeo = -1;

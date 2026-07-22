@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <sys/socket.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -14,6 +15,7 @@
 
 #include "../../src/pal/thread.h"
 #include "../../src/pal/clock.h"
+#include "../../src/utils/net.h"
 
 #define TEST_PORT 18888
 
@@ -181,12 +183,34 @@ static void test_tcp_rcvmaxsize (void)
     assert (rc == -1);
     assert (mb_errno () == EMSGSIZE);
 
+    mb_close (s1);
+    mb_close (s2);
+
+    /* Raised limit + matching kernel buffers (applied at session create). */
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
     rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVMAXSIZE, &raised,
         sizeof (raised));
     assert (rc == 0);
     rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVMAXSIZE, &raised,
         sizeof (raised));
     assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_SNDBUF, &raised, sizeof (raised));
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &raised, sizeof (raised));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &raised, sizeof (raised));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVBUF, &raised, sizeof (raised));
+    assert (rc == 0);
+    rc = mb_bind (s1, "tcp://127.0.0.1:18897");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18897");
+    assert (rc >= 0);
+    usleep (100000);
 
     {
         size_t big = 1024 * 1024 + 1;
@@ -217,6 +241,71 @@ static void test_tcp_rcvmaxsize (void)
     mb_close (s1);
     mb_close (s2);
     printf ("  test_tcp_rcvmaxsize: PASSED\n");
+}
+
+/*  mb_net_apply_bufs must set SO_SNDBUF/SO_RCVBUF on stream fds. */
+static void test_net_apply_bufs (void)
+{
+    int fds[2];
+    int snd = 8192;
+    int rcv = 16384;
+    int got = 0;
+    socklen_t glen = sizeof (got);
+
+    assert (socketpair (AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+    mb_net_apply_bufs (fds[0], snd, rcv);
+
+    glen = sizeof (got);
+    assert (getsockopt (fds[0], SOL_SOCKET, SO_SNDBUF, &got, &glen) == 0);
+    assert (got >= snd);
+
+    glen = sizeof (got);
+    assert (getsockopt (fds[0], SOL_SOCKET, SO_RCVBUF, &got, &glen) == 0);
+    assert (got >= rcv);
+
+    close (fds[0]);
+    close (fds[1]);
+    printf ("  test_net_apply_bufs: PASSED\n");
+}
+
+/*  MB_SNDBUF/MB_RCVBUF must not break TCP session setup. */
+static void test_tcp_sockbufs (void)
+{
+    int s1, s2;
+    int rc;
+    int bufsz = 8192;
+    char buf[64];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18898");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18898");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_send (s2, "BUF", 3, 0);
+    assert (rc == 3);
+    rc = mb_recv (s1, buf, sizeof (buf), 0);
+    assert (rc == 3);
+    assert (memcmp (buf, "BUF", 3) == 0);
+
+    mb_close (s1);
+    mb_close (s2);
+    printf ("  test_tcp_sockbufs: PASSED\n");
 }
 
 static void test_tcp_connect_refused (void)
@@ -703,6 +792,8 @@ int main (void)
     test_tcp_large_message ();
     test_tcp_send_oversized ();
     test_tcp_rcvmaxsize ();
+    test_net_apply_bufs ();
+    test_tcp_sockbufs ();
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();

@@ -7,6 +7,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
+#include "../../utils/net.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
 #include "../../memory/chunk.h"
@@ -248,10 +249,14 @@ static int mb_sws_send_pong (struct mb_sws *self, const void *data,
 int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     int is_client)
 {
+    struct mb_sock *sock;
+
     self->fd = fd;
     self->is_client = is_client;
     self->ssl = NULL;
     mb_pipebase_init (&self->pipebase, &mb_sws_vfptr, ep);
+    sock = mb_ep_sock (ep);
+    mb_net_apply_bufs (fd, sock->sndbuf, sock->rcvbuf);
     mb_list_item_init (&self->item);
     self->inpos = 0;
     self->inlen = 0;

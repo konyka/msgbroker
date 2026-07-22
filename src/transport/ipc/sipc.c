@@ -4,6 +4,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/cont.h"
 #include "../../utils/err.h"
+#include "../../utils/net.h"
 #include "../../utils/wire.h"
 #include "../../memory/msg.h"
 #include "../../pal/clock.h"
@@ -118,8 +119,12 @@ static int mb_sipc_recv_fd (int fd, void *buf, size_t len)
 
 int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
 {
+    struct mb_sock *sock;
+
     self->fd = fd;
     mb_pipebase_init (&self->pipebase, &mb_sipc_vfptr, ep);
+    sock = mb_ep_sock (ep);
+    mb_net_apply_bufs (fd, sock->sndbuf, sock->rcvbuf);
     mb_list_item_init (&self->item);
     self->inpos = 0;
     self->inlen = 0;
