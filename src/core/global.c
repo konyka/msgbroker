@@ -657,12 +657,21 @@ static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghd
         for (cmsg = MB_CMSG_FIRSTHDR (msghdr); cmsg;
              cmsg = MB_CMSG_NXTHDR (msghdr, cmsg)) {
             if (cmsg->cmsg_level == PROTO_SP && cmsg->cmsg_type == SP_HDR) {
-                size_t hdrlen = cmsg->cmsg_len - MB_CMSG_LEN (0);
+                size_t hdrlen;
+                int hrc;
+
+                if (cmsg->cmsg_len < MB_CMSG_LEN (0)) {
+                    mb_msg_term (msg);
+                    return -EINVAL;
+                }
+                hdrlen = cmsg->cmsg_len - MB_CMSG_LEN (0);
                 if (hdrlen > 0) {
-                    mb_chunkref_term (&msg->sphdr);
-                    mb_chunkref_init (&msg->sphdr, hdrlen);
-                    memcpy (mb_chunkref_data (&msg->sphdr),
+                    hrc = mb_chunkref_set (&msg->sphdr,
                         MB_CMSG_DATA (cmsg), hdrlen);
+                    if (hrc < 0) {
+                        mb_msg_term (msg);
+                        return hrc;
+                    }
                 }
             }
         }

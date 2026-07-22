@@ -139,6 +139,40 @@ static void test_cmsg_recvmsg_no_control (void)
     printf ("  cmsg_recvmsg_no_control: OK\n");
 }
 
+static void test_sendmsg_short_sphdr_cmsg (void)
+{
+    int s, rc;
+    char b = 'x';
+    char cbuf[128];
+    struct mb_iovec iov;
+    struct mb_msghdr hdr;
+    struct mb_cmsghdr *cmsg;
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+
+    memset (cbuf, 0, sizeof (cbuf));
+    cmsg = (struct mb_cmsghdr *) cbuf;
+    cmsg->cmsg_len = MB_CMSG_LEN (0) - 1;
+    cmsg->cmsg_level = PROTO_SP;
+    cmsg->cmsg_type = SP_HDR;
+
+    memset (&hdr, 0, sizeof (hdr));
+    iov.iov_base = &b;
+    iov.iov_len = 1;
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    hdr.msg_control = cbuf;
+    hdr.msg_controllen = sizeof (cbuf);
+
+    rc = mb_sendmsg (s, &hdr, MB_DONTWAIT);
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    mb_close (s);
+    printf ("  sendmsg_short_sphdr_cmsg: OK\n");
+}
+
 int main (void)
 {
     printf ("test_cmsg:\n");
@@ -147,6 +181,7 @@ int main (void)
     test_cmsg_nxthdr_multiple ();
     test_cmsg_macros ();
     test_cmsg_recvmsg_no_control ();
+    test_sendmsg_short_sphdr_cmsg ();
     printf ("test_cmsg: PASSED\n");
     return 0;
 }
