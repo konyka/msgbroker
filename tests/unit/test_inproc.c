@@ -6,6 +6,7 @@
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
+#include <msgbroker/mb_pubsub.h>
 
 #include "../../src/transport/inproc/ins.h"
 #include "../../src/core/ep.h"
@@ -227,6 +228,60 @@ static int ins_fail_cb (struct mb_ins_item *self, struct mb_ins_item *peer)
     return -ENOMEM;
 }
 
+/* Incompatible socktypes must not create an inproc pipe. */
+static void test_inproc_proto_mismatch (void)
+{
+    int pub, pair;
+    int rc;
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    pair = mb_socket (AF_MB, MB_PAIR);
+    assert (pair >= 0);
+
+    rc = mb_bind (pub, "inproc://proto_mismatch");
+    assert (rc >= 0);
+
+    rc = mb_connect (pair, "inproc://proto_mismatch");
+    assert (rc < 0);
+    assert (mb_errno () == EPROTONOSUPPORT);
+
+    mb_close (pair);
+    mb_close (pub);
+    printf ("  test_inproc_proto_mismatch: PASSED\n");
+}
+
+/* Compatible PUB/SUB still connects. */
+static void test_inproc_pubsub_ok (void)
+{
+    int pub, sub;
+    int rc;
+    char buf[32];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    assert (rc == 0);
+
+    rc = mb_bind (pub, "inproc://pubsub_ok");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://pubsub_ok");
+    assert (rc >= 0);
+
+    rc = mb_send (pub, "hi", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (sub, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "hi", 2) == 0);
+
+    mb_close (sub);
+    mb_close (pub);
+    printf ("  test_inproc_pubsub_ok: PASSED\n");
+}
+
 /* Peer bound + connect callback OOM must surface as -ENOMEM. */
 static void test_inproc_ins_connect_oom (void)
 {
@@ -267,6 +322,8 @@ int main (void)
     test_inproc_address_reuse ();
     test_inproc_multiple_addresses ();
     test_inproc_large_message ();
+    test_inproc_proto_mismatch ();
+    test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
     printf ("test_inproc: ALL PASSED\n");
     return 0;

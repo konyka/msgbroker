@@ -69,6 +69,10 @@ int mb_ins_connect (struct mb_ins_item *item, mb_ins_fn fn)
          it = mb_list_next (&mb_ins_bound, it)) {
         struct mb_ins_item *peer = (struct mb_ins_item *) it;
         if (strcmp (mb_ep_getaddr (peer->ep), addr) == 0) {
+            if (item->ep->sock && peer->ep->sock &&
+                (!mb_ep_ispeer (item->ep, peer->protocol) ||
+                 !mb_ep_ispeer (peer->ep, item->protocol)))
+                return -EPROTONOSUPPORT;
             if (fn)
                 return fn (item, peer);
             return 0;
