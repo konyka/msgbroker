@@ -60,7 +60,10 @@ static int mb_pair_events (struct mb_sockbase *self)
     struct mb_pair *pair = (struct mb_pair *) self;
     int ev = 0;
     if (pair->pipe) {
-        ev |= MB_SOCKBASE_EVENT_OUT;
+        /* Match PUSH/LB: OUT only when the pipe can accept a send (stream
+         * outbuf flush), not merely because a peer is connected. */
+        if (mb_pipe_can_send (pair->pipe))
+            ev |= MB_SOCKBASE_EVENT_OUT;
         if (mb_pipe_has_msg (pair->pipe))
             ev |= MB_SOCKBASE_EVENT_IN;
     }
