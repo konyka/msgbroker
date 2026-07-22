@@ -105,6 +105,47 @@ static void test_tcp_large_message (void)
     printf ("  test_tcp_large_message: PASSED\n");
 }
 
+static void test_tcp_send_oversized (void)
+{
+    int s1, s2;
+    int rc;
+    char *buf;
+    size_t n = 1024 * 1024 + 1;
+    char rbuf[16];
+
+    buf = (char *) malloc (n);
+    assert (buf != NULL);
+    memset (buf, 'x', n);
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18890");
+    assert (rc >= 0);
+    usleep (50000);
+    rc = mb_connect (s2, "tcp://127.0.0.1:18890");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_send (s2, buf, n, 0);
+    assert (rc == -1);
+    assert (mb_errno () == EMSGSIZE);
+
+    rc = mb_send (s2, "ok", 2, 0);
+    assert (rc == 2);
+    usleep (100000);
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), 0);
+    assert (rc == 2);
+    assert (memcmp (rbuf, "ok", 2) == 0);
+
+    free (buf);
+    mb_close (s1);
+    mb_close (s2);
+    printf ("  test_tcp_send_oversized: PASSED\n");
+}
+
 static void test_tcp_connect_refused (void)
 {
     int s;
@@ -517,6 +558,7 @@ int main (void)
     printf ("test_tcp:\n");
     test_tcp_bind_connect ();
     test_tcp_large_message ();
+    test_tcp_send_oversized ();
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();

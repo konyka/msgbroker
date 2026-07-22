@@ -267,6 +267,9 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
     {
         size_t body_size = mb_chunkref_size (&msg->body);
 
+        if (body_size > 1024 * 1024)
+            return -EMSGSIZE;
+
         self->outlen = (int) (MB_SIPC_HDR_SIZE + body_size);
         self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
         if (!self->outbuf)

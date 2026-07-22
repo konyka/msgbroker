@@ -458,6 +458,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         size_t payload_len;
 
         body_len = mb_chunkref_size (&msg->body);
+        if (body_len > 1024 * 1024)
+            return -EMSGSIZE;
         mb_wire_put_uint32 (hdr, (uint32_t) body_len);
         payload_len = 4 + body_len;
         payload = (uint8_t *) mb_alloc (payload_len);
