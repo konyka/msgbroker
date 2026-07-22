@@ -462,6 +462,44 @@ static void test_surveyor_poll_no_peers (void)
     printf ("  test_surveyor_poll_no_peers: PASSED\n");
 }
 
+/*  Cooked PUB must clear sticky POLLOUT after last peer disconnects. */
+static void test_pub_poll_no_peers (void)
+{
+    int pub, sub;
+    int rc;
+    struct mb_pollfd fds[1];
+
+    pub = mb_socket (AF_MB, MB_PUB);
+    assert (pub >= 0);
+    sub = mb_socket (AF_MB, MB_SUB);
+    assert (sub >= 0);
+
+    rc = mb_bind (pub, "inproc://pub_poll");
+    assert (rc >= 0);
+    rc = mb_connect (sub, "inproc://pub_poll");
+    assert (rc >= 0);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = pub;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc >= 1);
+    assert (fds[0].revents & MB_POLLOUT);
+
+    rc = mb_close (sub);
+    assert (rc == 0);
+
+    fds[0].revents = 0;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    rc = mb_close (pub);
+    assert (rc == 0);
+
+    printf ("  test_pub_poll_no_peers: PASSED\n");
+}
+
 /*  XPUB must clear sticky POLLOUT after last peer disconnects. */
 static void test_xpub_poll_no_peers (void)
 {
@@ -557,6 +595,7 @@ int main (void)
     test_xsub_send_no_peers ();
     test_xrespondent_poll_no_peers ();
     test_surveyor_poll_no_peers ();
+    test_pub_poll_no_peers ();
     test_xpub_poll_no_peers ();
     test_xpush_poll_no_peers ();
     printf ("All protocol tests passed.\n");

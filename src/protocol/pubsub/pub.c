@@ -70,8 +70,13 @@ static void mb_pub_out (struct mb_sockbase *self, struct mb_pipe *pipe)
 
 static int mb_pub_events (struct mb_sockbase *self)
 {
-    (void) self;
-    return MB_SOCKBASE_EVENT_OUT;
+    struct mb_pub *pub = (struct mb_pub *) self;
+
+    /* Match XPUB: OUT only with at least one subscriber (avoid sticky POLLOUT).
+     * Send still fire-and-forgets with zero peers. */
+    if (mb_list_begin (&pub->pipes) != mb_list_end (&pub->pipes))
+        return MB_SOCKBASE_EVENT_OUT;
+    return 0;
 }
 
 static int mb_pub_send (struct mb_sockbase *self, struct mb_msg *msg)
