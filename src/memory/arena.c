@@ -1,12 +1,18 @@
 #include "arena.h"
 #include "../utils/alloc.h"
 
-#include <string.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 static struct mb_arena_block *mb_arena_block_new (size_t size)
 {
-    struct mb_arena_block *blk = (struct mb_arena_block *)
+    struct mb_arena_block *blk;
+
+    if (size > SIZE_MAX - sizeof (struct mb_arena_block))
+        return NULL;
+
+    blk = (struct mb_arena_block *)
         mb_alloc (sizeof (struct mb_arena_block) + size);
     if (!blk)
         return NULL;
@@ -37,7 +43,7 @@ void *mb_arena_alloc (struct mb_arena *self, size_t size)
 {
     struct mb_arena_block *blk = self->blocks;
     while (blk) {
-        if (blk->used + size <= blk->size) {
+        if (blk->used <= blk->size && size <= blk->size - blk->used) {
             void *ptr = blk->data + blk->used;
             blk->used += size;
             return ptr;

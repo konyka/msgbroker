@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <stddef.h>
+#include <stdint.h>
 
 int main (void)
 {
@@ -36,6 +38,17 @@ int main (void)
         mb_arena_term (&arena);
         printf ("  arena_init_oom: OK\n");
     }
+
+    /* size_t wrap must not succeed with a tiny backing allocation. */
+    mb_arena_init (&arena, SIZE_MAX);
+    assert (mb_arena_alloc (&arena, 1) == NULL);
+    mb_arena_term (&arena);
+
+    mb_arena_init (&arena, 256);
+    assert (mb_arena_alloc (&arena, SIZE_MAX) == NULL);
+    assert (mb_arena_alloc (&arena, SIZE_MAX - 1) == NULL);
+    mb_arena_term (&arena);
+    printf ("  arena_size_overflow: OK\n");
 
     printf ("test_arena: PASSED\n");
     return 0;
