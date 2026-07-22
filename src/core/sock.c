@@ -329,6 +329,38 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         }
     }
 
+    if (level == MB_TLS) {
+        const char *path = NULL;
+        size_t pathlen;
+
+        switch (option) {
+        case MB_TLS_CONFIG_CERT:
+            path = self->tls_cert_path;
+            break;
+        case MB_TLS_CONFIG_KEY:
+            path = self->tls_key_path;
+            break;
+        case MB_TLS_CONFIG_CA:
+            path = self->tls_ca_path;
+            break;
+        case MB_TLS_CONFIG_VERIFY:
+            if (!optval || !optvallen || *optvallen < sizeof (int))
+                return -EINVAL;
+            *((int *) optval) = self->tls_verify;
+            *optvallen = sizeof (int);
+            return 0;
+        default:
+            return -ENOPROTOOPT;
+        }
+
+        pathlen = strlen (path) + 1;
+        if (!optval || !optvallen || *optvallen < pathlen)
+            return -EINVAL;
+        memcpy (optval, path, pathlen);
+        *optvallen = pathlen;
+        return 0;
+    }
+
     if (self->sockbase && self->sockbase->vfptr->getopt) {
         rc = self->sockbase->vfptr->getopt (self->sockbase, level, option,
             optval, optvallen);
