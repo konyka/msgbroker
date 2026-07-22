@@ -28,11 +28,12 @@ static const struct mb_ep_ops mb_cinproc_ops = {
     NULL,
 };
 
-static void mb_cinproc_connect_cb (struct mb_ins_item *self,
+static int mb_cinproc_connect_cb (struct mb_ins_item *self,
     struct mb_ins_item *peer_item)
 {
     struct mb_cinproc *cinproc;
     struct mb_binproc *binproc;
+    struct mb_sinproc *bind_side;
 
     cinproc = mb_cont (self, struct mb_cinproc, item);
     binproc = mb_cont (peer_item, struct mb_binproc, item);
@@ -40,17 +41,16 @@ static void mb_cinproc_connect_cb (struct mb_ins_item *self,
     cinproc->sinproc = (struct mb_sinproc *) mb_alloc (
         sizeof (struct mb_sinproc));
     if (!cinproc->sinproc)
-        return;
+        return -ENOMEM;
 
     mb_sinproc_create (cinproc->sinproc, cinproc->item.ep);
 
-    struct mb_sinproc *bind_side;
     bind_side = (struct mb_sinproc *) mb_alloc (sizeof (struct mb_sinproc));
     if (!bind_side) {
         mb_sinproc_term (cinproc->sinproc);
         mb_free (cinproc->sinproc);
         cinproc->sinproc = NULL;
-        return;
+        return -ENOMEM;
     }
 
     mb_sinproc_create (bind_side, binproc->item.ep);
@@ -58,11 +58,13 @@ static void mb_cinproc_connect_cb (struct mb_ins_item *self,
         mb_list_end (&binproc->sinprocs));
 
     mb_sinproc_connect (cinproc->sinproc, bind_side);
+    return 0;
 }
 
 int mb_cinproc_create (struct mb_ep *ep)
 {
     struct mb_cinproc *self;
+    int rc;
 
     self = (struct mb_cinproc *) mb_alloc (sizeof (struct mb_cinproc));
     if (!self)
@@ -74,12 +76,19 @@ int mb_cinproc_create (struct mb_ep *ep)
     mb_ins_item_init (&self->item, ep);
     self->sinproc = NULL;
 
+    /* Connect before tran_setup so OOM can fail create without a half EP. */
+    rc = mb_ins_connect (&self->item, mb_cinproc_connect_cb);
+    if (rc < 0) {
+        mb_ins_item_term (&self->item);
+        mb_fsm_term (&self->fsm);
+        mb_free (self);
+        return rc;
+    }
+
     mb_ep_tran_setup (ep, &mb_cinproc_ops, self);
 
     mb_fsm_start (&self->fsm);
     self->state = MB_CINPROC_STATE_ACTIVE;
-
-    mb_ins_connect (&self->item, mb_cinproc_connect_cb);
 
     return 0;
 }

@@ -4,6 +4,7 @@
 #include "../../utils/alloc.h"
 #include "../../utils/list.h"
 
+#include <errno.h>
 #include <string.h>
 
 static struct mb_list mb_ins_bound;
@@ -57,7 +58,7 @@ int mb_ins_bind (struct mb_ins_item *item, mb_ins_fn fn)
     return 0;
 }
 
-void mb_ins_connect (struct mb_ins_item *item, mb_ins_fn fn)
+int mb_ins_connect (struct mb_ins_item *item, mb_ins_fn fn)
 {
     struct mb_list_item *it;
     const char *addr;
@@ -69,10 +70,11 @@ void mb_ins_connect (struct mb_ins_item *item, mb_ins_fn fn)
         struct mb_ins_item *peer = (struct mb_ins_item *) it;
         if (strcmp (mb_ep_getaddr (peer->ep), addr) == 0) {
             if (fn)
-                fn (item, peer);
-            return;
+                return fn (item, peer);
+            return 0;
         }
     }
+    return 0;
 }
 
 void mb_ins_unbind (struct mb_ins_item *item)

@@ -29,7 +29,7 @@ static const struct mb_ep_ops mb_binproc_ops = {
     NULL,
 };
 
-static void mb_binproc_connect_cb (struct mb_ins_item *self,
+static int mb_binproc_connect_cb (struct mb_ins_item *self,
     struct mb_ins_item *peer_item)
 {
     struct mb_binproc *binproc;
@@ -41,13 +41,14 @@ static void mb_binproc_connect_cb (struct mb_ins_item *self,
 
     sinproc = (struct mb_sinproc *) mb_alloc (sizeof (struct mb_sinproc));
     if (!sinproc)
-        return;
+        return -ENOMEM;
 
     mb_sinproc_create (sinproc, binproc->item.ep);
     mb_list_insert (&binproc->sinprocs, &sinproc->item,
         mb_list_end (&binproc->sinprocs));
 
     mb_sinproc_connect (sinproc, peer_sinproc);
+    return 0;
 }
 
 int mb_binproc_create (struct mb_ep *ep)

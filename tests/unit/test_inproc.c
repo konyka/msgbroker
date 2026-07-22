@@ -2,9 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
+
+#include "../../src/transport/inproc/ins.h"
+#include "../../src/core/ep.h"
 
 /*  Test basic inproc bind/connect and message passing between PAIR sockets. */
 static void test_inproc_bind_connect (void)
@@ -216,6 +220,44 @@ static void test_inproc_large_message (void)
     printf ("  test_inproc_large_message: PASSED\n");
 }
 
+static int ins_fail_cb (struct mb_ins_item *self, struct mb_ins_item *peer)
+{
+    (void) self;
+    (void) peer;
+    return -ENOMEM;
+}
+
+/* Peer bound + connect callback OOM must surface as -ENOMEM. */
+static void test_inproc_ins_connect_oom (void)
+{
+    struct mb_ep bound_ep;
+    struct mb_ep conn_ep;
+    struct mb_ins_item bound;
+    struct mb_ins_item conn;
+    int rc;
+
+    memset (&bound_ep, 0, sizeof (bound_ep));
+    memset (&conn_ep, 0, sizeof (conn_ep));
+    strcpy (bound_ep.addr, "inproc://test_ins_oom");
+    strcpy (conn_ep.addr, "inproc://test_ins_oom");
+
+    mb_ins_init ();
+    mb_ins_item_init (&bound, &bound_ep);
+    mb_ins_item_init (&conn, &conn_ep);
+
+    rc = mb_ins_bind (&bound, NULL);
+    assert (rc == 0);
+
+    rc = mb_ins_connect (&conn, ins_fail_cb);
+    assert (rc == -ENOMEM);
+
+    mb_ins_unbind (&bound);
+    mb_ins_item_term (&conn);
+    mb_ins_item_term (&bound);
+
+    printf ("  test_inproc_ins_connect_oom: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_inproc:\n");
@@ -225,6 +267,7 @@ int main (void)
     test_inproc_address_reuse ();
     test_inproc_multiple_addresses ();
     test_inproc_large_message ();
+    test_inproc_ins_connect_oom ();
     printf ("test_inproc: ALL PASSED\n");
     return 0;
 }
