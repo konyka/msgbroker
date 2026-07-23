@@ -3,7 +3,7 @@
 #include "sock.h"
 #include "ep.h"
 
-#include <assert.h>
+#include <errno.h>
 #include <string.h>
 
 static void mb_ep_handler (struct mb_fsm *self, int src, int type,
@@ -15,6 +15,9 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
     const struct mb_transport *transport, int bind, const char *addr)
 {
     int rc;
+
+    if (!addr || strlen (addr) > MB_SOCKADDR_MAX)
+        return -EINVAL;
 
     mb_fsm_init (&self->fsm, mb_ep_handler, mb_ep_shutdown,
         src, self, &sock->fsm);
@@ -28,7 +31,6 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
 
     self->protocol = sock->socktype->protocol;
 
-    assert (strlen (addr) <= MB_SOCKADDR_MAX);
     strcpy (self->addr, addr);
 
     self->tran = NULL;
