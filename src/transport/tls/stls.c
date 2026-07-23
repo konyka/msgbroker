@@ -131,6 +131,21 @@ static int mb_stls_recv_ssl (SSL *ssl, void *buf, size_t len)
     return (int) got;
 }
 
+/* Honor live MB_SNDBUF/MB_RCVBUF after connect (create only snapshots). */
+static void mb_stls_sync_bufs (struct mb_stls *self)
+{
+    struct mb_sock *sock;
+    int fd;
+
+    if (!self->ssl || self->disconnected)
+        return;
+    sock = self->pipebase.sock;
+    if (!sock)
+        return;
+    fd = SSL_get_fd (self->ssl);
+    mb_net_apply_bufs (fd, sock->sndbuf, sock->rcvbuf);
+}
+
 int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl)
 {
     struct mb_sock *sock;
@@ -293,6 +308,8 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
+    mb_stls_sync_bufs (self);
+
     rc = mb_stls_flush_outbuf (self);
     if (rc < 0)
         return rc;
@@ -335,6 +352,8 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_stls_report_error (self);
         return -ECONNRESET;
     }
+
+    mb_stls_sync_bufs (self);
 
     /* Best-effort: write backpressure must not block delivery of reads. */
     rc = mb_stls_flush_outbuf (self);

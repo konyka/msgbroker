@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-184 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-185 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2355,6 +2355,18 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sipc</b>: <code>mb_sipc_sync_bufs</code> on send/recv</li>
 <li>[x] test: <code>test_tcp_buf_after_connect</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 185 — Apply Buffer Options After TLS/WS Connect</h2>
+<span class="status done">DONE</span>
+<p>Phase 184 synced live <code>MB_SNDBUF</code>/<code>MB_RCVBUF</code> for sipc (TCP/IPC); <code>stls</code>/<code>sws</code> still applied kernel buffers only at session create. Sync on send/recv for TLS and WebSocket/WSS sessions.</p>
+<ul>
+<li>[x] <b>stls</b>: <code>mb_stls_sync_bufs</code> on send/recv</li>
+<li>[x] <b>sws</b>: <code>mb_sws_sync_bufs</code> on send/recv (plain fd or SSL_get_fd)</li>
+<li>[x] test: <code>test_tls_buf_after_connect</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

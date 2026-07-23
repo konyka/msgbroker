@@ -253,6 +253,21 @@ static int mb_sws_send_pong (struct mb_sws *self, const void *data,
     return mb_sws_send_frame (self, MB_WS_OPCODE_PONG, data, len);
 }
 
+/* Honor live MB_SNDBUF/MB_RCVBUF after connect (create only snapshots). */
+static void mb_sws_sync_bufs (struct mb_sws *self)
+{
+    struct mb_sock *sock;
+    int fd;
+
+    if (self->disconnected)
+        return;
+    sock = self->pipebase.sock;
+    if (!sock)
+        return;
+    fd = self->ssl ? SSL_get_fd (self->ssl) : self->fd;
+    mb_net_apply_bufs (fd, sock->sndbuf, sock->rcvbuf);
+}
+
 int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     int is_client)
 {
@@ -452,6 +467,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
+    mb_sws_sync_bufs (self);
+
     if (!self->outbuf && self->pending_pong) {
         rc = mb_sws_flush_pending_pong (self);
         if (rc < 0) {
@@ -516,6 +533,8 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_sws_report_error (self);
         return -ECONNRESET;
     }
+
+    mb_sws_sync_bufs (self);
 
     /* Best-effort: write backpressure must not block delivery of reads. */
     rc = mb_sws_flush_outbuf (self);

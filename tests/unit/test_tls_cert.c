@@ -161,12 +161,86 @@ static void test_tls_no_cert_connect_fails (void)
     printf ("  tls_no_cert_connect_fails: OK\n");
 }
 
+/* MB_SNDBUF/MB_RCVBUF after TLS connect must apply to the kernel fd. */
+static void test_tls_buf_after_connect (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int ok = 0;
+    int bufsz = 4096;
+    int linger = 0;
+    char chunk[1024];
+    char rbuf[8];
+
+    generate_self_signed_cert ();
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_TLS, MB_TLS_CONFIG_CERT,
+        CERT_FILE, strlen (CERT_FILE) + 1);
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_TLS, MB_TLS_CONFIG_KEY,
+        KEY_FILE, strlen (KEY_FILE) + 1);
+    assert (rc == 0);
+    rc = mb_setsockopt (s1, MB_TLS, MB_TLS_CONFIG_VERIFY,
+        &(int){0}, sizeof (int));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_VERIFY,
+        &(int){0}, sizeof (int));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "tls://127.0.0.1:5563");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "tls://127.0.0.1:5563");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    memset (chunk, 'T', sizeof (chunk));
+    for (i = 0; i < 64; ++i) {
+        rc = mb_send (s2, chunk, sizeof (chunk), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            break;
+        }
+        assert (rc == (int) sizeof (chunk));
+        ok++;
+    }
+    assert (i < 64);
+    assert (ok < 48);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+    cleanup_cert_files ();
+    printf ("  tls_buf_after_connect: OK\n");
+}
+
 int main (void)
 {
     printf ("test_tls_cert:\n");
     test_tls_no_cert_connect_fails ();
     test_tls_cert_sendrecv ();
     test_tls_cert_bidir ();
+    test_tls_buf_after_connect ();
     printf ("test_tls_cert: PASSED\n");
     return 0;
 }
