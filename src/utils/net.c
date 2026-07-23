@@ -62,9 +62,10 @@ int mb_net_parse_addr (const char *addr, char *host, size_t hostlen,
     return 0;
 }
 
-int mb_net_connect (const char *host, uint16_t port, int *family)
+int mb_net_connect (const char *host, uint16_t port, int *family,
+    int ipv4only)
 {
-    return mb_net_connect_while (host, port, family, NULL, 5000);
+    return mb_net_connect_while (host, port, family, NULL, 5000, ipv4only);
 }
 
 /* Nonblocking connect to one sockaddr; cancellable via *running. */
@@ -137,14 +138,15 @@ static int mb_net_connect_sa (const struct sockaddr *sa, socklen_t salen,
 }
 
 int mb_net_connect_while (const char *host, uint16_t port, int *family,
-    volatile int *running, int timeout_ms)
+    volatile int *running, int timeout_ms, int ipv4only)
 {
     return mb_net_connect_cached (host, port, family, running, timeout_ms,
-        NULL);
+        NULL, ipv4only);
 }
 
 int mb_net_connect_cached (const char *host, uint16_t port, int *family,
-    volatile int *running, int timeout_ms, struct mb_net_epaddr *cache)
+    volatile int *running, int timeout_ms, struct mb_net_epaddr *cache,
+    int ipv4only)
 {
     struct addrinfo hints;
     struct addrinfo *result;
@@ -161,6 +163,10 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
 
     /* Reconnect hot path: skip DNS entirely when we already have an addr. */
     if (cache && cache->ready) {
+        if (ipv4only && cache->family != AF_INET)
+            cache->ready = 0;
+    }
+    if (cache && cache->ready) {
         fd = mb_net_connect_sa ((struct sockaddr *) &cache->addr,
             cache->addrlen, cache->family, running, timeout_ms);
         if (fd >= 0) {
@@ -174,7 +180,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
     }
 
     memset (&hints, 0, sizeof (hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = ipv4only ? AF_INET : AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
     snprintf (port_str, sizeof (port_str), "%u", port);
@@ -313,7 +319,7 @@ void mb_net_apply_bufs (int fd, int sndbuf, int rcvbuf)
         (void) setsockopt (fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof (rcvbuf));
 }
 
-int mb_net_bind (const char *host, uint16_t port, int backlog)
+int mb_net_bind (const char *host, uint16_t port, int backlog, int ipv4only)
 {
     struct addrinfo hints;
     struct addrinfo *result;
@@ -326,7 +332,7 @@ int mb_net_bind (const char *host, uint16_t port, int backlog)
     const char *bind_host;
 
     memset (&hints, 0, sizeof (hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = ipv4only ? AF_INET : AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 

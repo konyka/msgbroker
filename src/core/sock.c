@@ -240,6 +240,13 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         case MB_RECONNECT_IVL_MAX:self->reconnect_ivl_max = *(const int *)optval; return 0;
         case MB_SNDPRIO:          self->ep_template.sndprio = *(const int *)optval; return 0;
         case MB_RCVPRIO:          self->ep_template.rcvprio = *(const int *)optval; return 0;
+        case MB_IPV4ONLY: {
+            int v = *(const int *)optval;
+            if (v != 0 && v != 1)
+                return -EINVAL;
+            self->ep_template.ipv4only = v;
+            return 0;
+        }
         case MB_MAXTTL:           self->maxttl = *(const int *)optval; return 0;
         case MB_LINGER:           self->linger = *(const int *)optval; return 0;
         }
@@ -308,6 +315,7 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         case MB_RECONNECT_IVL_MAX: val = self->reconnect_ivl_max; have_val = 1; break;
         case MB_SNDPRIO:           val = self->ep_template.sndprio; have_val = 1; break;
         case MB_RCVPRIO:           val = self->ep_template.rcvprio; have_val = 1; break;
+        case MB_IPV4ONLY:          val = self->ep_template.ipv4only; have_val = 1; break;
         case MB_MAXTTL:            val = self->maxttl; have_val = 1; break;
         case MB_LINGER:            val = self->linger; have_val = 1; break;
         case MB_DOMAIN:            val = self->socktype->domain; have_val = 1; break;

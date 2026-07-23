@@ -310,7 +310,8 @@ static void mb_cwss_reconnect_loop (void *arg)
         struct mb_sws *sws;
 
         fd = mb_net_connect_cached (self->host, self->port, NULL,
-            &self->running, 5000, &self->resolved);
+            &self->running, 5000, &self->resolved,
+            self->ep->options.ipv4only);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -386,7 +387,8 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     int rc;
 
     fd = mb_net_connect_cached (self->host, self->port, NULL,
-        &self->running, 5000, &self->resolved);
+        &self->running, 5000, &self->resolved,
+        self->ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

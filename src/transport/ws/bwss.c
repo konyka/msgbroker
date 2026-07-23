@@ -440,7 +440,7 @@ int mb_bwss_create (struct mb_ep *ep)
     if (rc < 0)
         return rc;
 
-    fd = mb_net_bind (host, port, 10);
+    fd = mb_net_bind (host, port, 10, ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

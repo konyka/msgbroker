@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include <unistd.h>
 
 #include <msgbroker/mb.h>
@@ -141,6 +142,46 @@ static void test_tcp_ipv4_wildcard (void)
     printf ("  test_tcp_ipv4_wildcard: PASSED\n");
 }
 
+static void test_ipv4only_option (void)
+{
+    int s1, s2;
+    int rc;
+    int v = 1;
+    int got = -1;
+    size_t sz = sizeof (got);
+    int ivl = 0;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_IPV4ONLY, &v, sizeof (v));
+    assert (rc == 0);
+    rc = mb_getsockopt (s1, MB_SOL_SOCKET, MB_IPV4ONLY, &got, &sz);
+    assert (rc == 0);
+    assert (got == 1);
+
+    v = 2;
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_IPV4ONLY, &v, sizeof (v));
+    assert (rc < 0);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
+    assert (rc == 0);
+    rc = mb_bind (s1, "tcp://[::1]:18894");
+    assert (rc < 0);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    v = 1;
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_IPV4ONLY, &v, sizeof (v));
+    assert (rc == 0);
+    rc = mb_bind (s2, "tcp://127.0.0.1:18895");
+    assert (rc >= 0);
+
+    mb_close (s1);
+    mb_close (s2);
+    printf ("  test_ipv4only_option: PASSED\n");
+}
+
 int main (void)
 {
     printf ("IPv6 + DNS Tests:\n");
@@ -149,6 +190,7 @@ int main (void)
     test_tcp_localhost_dns ();
     test_tcp_ipv6_loopback ();
     test_tcp_ipv6_wildcard ();
+    test_ipv4only_option ();
 
     printf ("\nAll IPv6 + DNS tests PASSED\n");
     return 0;

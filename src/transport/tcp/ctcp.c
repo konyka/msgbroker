@@ -53,7 +53,8 @@ static void mb_ctcp_reconnect_loop (void *arg)
         struct mb_sipc *sipc;
 
         fd = mb_net_connect_cached (self->host, self->port, NULL,
-            &self->running, 5000, &self->resolved);
+            &self->running, 5000, &self->resolved,
+            self->ep->options.ipv4only);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -104,7 +105,8 @@ static int mb_ctcp_do_connect (struct mb_ctcp *self)
     int fd;
 
     fd = mb_net_connect_cached (self->host, self->port, NULL,
-        &self->running, 5000, &self->resolved);
+        &self->running, 5000, &self->resolved,
+        self->ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

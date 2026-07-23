@@ -143,7 +143,8 @@ static void mb_ctls_reconnect_loop (void *arg)
         struct mb_stls *stls;
 
         fd = mb_net_connect_cached (self->host, self->port, NULL,
-            &self->running, 5000, &self->resolved);
+            &self->running, 5000, &self->resolved,
+            self->ep->options.ipv4only);
         if (fd < 0) {
             if (fd == -ECANCELED)
                 break;
@@ -206,7 +207,8 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
     SSL *ssl;
 
     fd = mb_net_connect_cached (self->host, self->port, NULL,
-        &self->running, 5000, &self->resolved);
+        &self->running, 5000, &self->resolved,
+        self->ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

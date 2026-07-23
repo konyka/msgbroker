@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-177 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-178 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2274,6 +2274,18 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>ctcp/cipc/ctls/cws/cwss</b>: pass through start rc; skip reconnect for EISCONN</li>
 <li>[x] tests: <code>test_tcp_pair_second_connect</code>, <code>test_ipc_pair_second_connect</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 178 — Wire MB_IPV4ONLY Through sockopt and net</h2>
+<span class="status done">DONE</span>
+<p><code>MB_IPV4ONLY</code> existed in the public API and <code>ep_template</code> but setopt/getopt returned <code>ENOPROTOOPT</code>, and <code>mb_net_bind/connect</code> always used <code>AF_UNSPEC</code>. Honor the option (0/1) and force <code>AF_INET</code> when set.</p>
+<ul>
+<li>[x] <b>sock</b>: IPV4ONLY get/set</li>
+<li>[x] <b>net</b> + TCP/TLS/WS transports: pass ipv4only</li>
+<li>[x] test: <code>test_ipv4only_option</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

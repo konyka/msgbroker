@@ -990,7 +990,7 @@ static void test_tcp_bind_ipv4_any_literal (void)
     socklen_t sslen = sizeof (ss);
     struct sockaddr_in *sin;
 
-    fd = mb_net_bind ("0.0.0.0", 0, 1);
+    fd = mb_net_bind ("0.0.0.0", 0, 1, 0);
     assert (fd >= 0);
     memset (&ss, 0, sizeof (ss));
     assert (getsockname (fd, (struct sockaddr *) &ss, &sslen) == 0);
