@@ -81,6 +81,7 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
 
     mb_list_init (&self->eps);
     mb_list_init (&self->sdeps);
+    mb_list_init (&self->pipes);
 
     self->socktype = socktype;
     self->flags = 0;
@@ -240,10 +241,20 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         }
         case MB_RCVBUF: {
             int v = *(const int *)optval;
+            struct mb_list_item *it;
+
             /* msgqueue treats maxmem==0 as unlimited; reject before that. */
             if (v <= 0)
                 return -EINVAL;
             self->rcvbuf = v;
+            /* Inproc peers may be blocked on the old maxmem — wake them. */
+            for (it = mb_list_begin (&self->pipes);
+                it != mb_list_end (&self->pipes);
+                it = mb_list_next (&self->pipes, it)) {
+                struct mb_pipebase *base =
+                    mb_cont (it, struct mb_pipebase, sock_item);
+                mb_pipe_notify_rcvbuf ((struct mb_pipe *) base);
+            }
             return 0;
         }
         case MB_RCVMAXSIZE: {
@@ -502,6 +513,11 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
         return -EBADF;
     rc = self->sockbase->vfptr->add (self->sockbase, pipe);
     if (rc == 0) {
+        struct mb_pipebase *base = (struct mb_pipebase *) pipe;
+
+        if (!mb_list_item_isinlist (&base->sock_item))
+            mb_list_insert (&self->pipes, &base->sock_item,
+                mb_list_end (&self->pipes));
         mb_sock_sync_sndfd (self);
         mb_sock_sync_rcvfd (self);
     }
@@ -510,8 +526,12 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe)
 
 void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe)
 {
+    struct mb_pipebase *base = (struct mb_pipebase *) pipe;
+
     /* Always unregister: teardown sets STOPPING before ep_stop, and
      * skipping rm leaves dangling pipe pointers in sockbase. */
+    if (base && mb_list_item_isinlist (&base->sock_item))
+        mb_list_erase (&self->pipes, &base->sock_item);
     if (!self->sockbase)
         return;
     self->sockbase->vfptr->rm (self->sockbase, pipe);

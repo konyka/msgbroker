@@ -41,6 +41,7 @@ static const struct mb_pipebase_vfptr mb_sws_vfptr = {
     mb_sws_recv,
     mb_sws_has_msg,
     mb_sws_can_send,
+    NULL,
 };
 
 static int mb_sws_has_msg (struct mb_pipebase *base)

@@ -30,6 +30,7 @@ static const struct mb_pipebase_vfptr mb_stls_vfptr = {
     mb_stls_recv,
     mb_stls_has_msg,
     mb_stls_can_send,
+    NULL,
 };
 
 static int mb_stls_has_msg (struct mb_pipebase *base)

@@ -9,6 +9,7 @@
 
 struct mb_sock;
 struct mb_ep;
+struct mb_pipe;
 
 /******************************************************************************/
 /*  Option set — transport-specific socket options.                           */
@@ -54,6 +55,8 @@ struct mb_pipebase_vfptr {
     int (*has_msg) (struct mb_pipebase *self);
     /* Non-destructive: 1 if a new message can be accepted for send. */
     int (*can_send) (struct mb_pipebase *self);
+    /* Optional: live MB_RCVBUF changed on owning socket (may be NULL). */
+    void (*on_rcvbuf) (struct mb_pipebase *self);
 };
 
 struct mb_ep_options {
@@ -72,6 +75,7 @@ struct mb_pipebase {
     struct mb_sock *sock;
     struct mb_ep *ep;
     void *data;
+    struct mb_list_item sock_item; /* linked into mb_sock.pipes when active */
     struct mb_fsm_event in;
     struct mb_fsm_event out;
     struct mb_ep_options options;
@@ -84,6 +88,7 @@ int mb_pipebase_start (struct mb_pipebase *self);
 void mb_pipebase_stop (struct mb_pipebase *self);
 /* Undo a successful start when the overall handshake fails (no BROKEN++). */
 void mb_pipebase_cancel (struct mb_pipebase *self);
+void mb_pipe_notify_rcvbuf (struct mb_pipe *self);
 void mb_pipebase_received (struct mb_pipebase *self);
 void mb_pipebase_sent (struct mb_pipebase *self);
 void mb_pipebase_getopt (struct mb_pipebase *self, int level, int option,

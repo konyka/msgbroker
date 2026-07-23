@@ -35,6 +35,7 @@ static const struct mb_pipebase_vfptr mb_sipc_vfptr = {
     mb_sipc_recv,
     mb_sipc_has_msg,
     mb_sipc_can_send,
+    NULL,
 };
 
 static int mb_sipc_has_msg (struct mb_pipebase *base)

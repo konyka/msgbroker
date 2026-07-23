@@ -15,12 +15,14 @@ static int mb_sinproc_send (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_recv (struct mb_pipebase *self, struct mb_msg *msg);
 static int mb_sinproc_has_msg (struct mb_pipebase *self);
 static int mb_sinproc_can_send (struct mb_pipebase *self);
+static void mb_sinproc_on_rcvbuf (struct mb_pipebase *base);
 
 static const struct mb_pipebase_vfptr mb_sinproc_vfptr = {
     mb_sinproc_send,
     mb_sinproc_recv,
     mb_sinproc_has_msg,
     mb_sinproc_can_send,
+    mb_sinproc_on_rcvbuf,
 };
 
 /* Honor live MB_RCVBUF after connect (create only snapshots the initial value). */
@@ -34,6 +36,17 @@ static void mb_sinproc_sync_maxmem (struct mb_sinproc *self)
     if (rcvbuf <= 0)
         rcvbuf = 1024 * 1024;
     mb_msgqueue_set_maxmem (&self->msgqueue, (size_t) rcvbuf);
+}
+
+static void mb_sinproc_on_rcvbuf (struct mb_pipebase *base)
+{
+    struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
+
+    mb_sinproc_sync_maxmem (self);
+    /* Peer may have blocked on our old maxmem — wake its POLLOUT. */
+    if (self->peer && self->peer->pipebase.sock &&
+        mb_msgqueue_can_push (&self->msgqueue))
+        mb_efd_signal (&self->peer->pipebase.sock->sndfd);
 }
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)

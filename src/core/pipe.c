@@ -39,6 +39,7 @@ void mb_pipebase_init (struct mb_pipebase *self,
     self->bind = ep->bind ? 1 : 0;
     self->sock = mb_ep_sock (ep);
     self->ep = ep;
+    mb_list_item_init (&self->sock_item);
     memcpy (&self->options, &ep->options, sizeof (struct mb_ep_options));
     mb_fsm_event_init (&self->in);
     mb_fsm_event_init (&self->out);
@@ -46,6 +47,9 @@ void mb_pipebase_init (struct mb_pipebase *self,
 
 void mb_pipebase_term (struct mb_pipebase *self)
 {
+    if (mb_list_item_isinlist (&self->sock_item) && self->sock)
+        mb_list_erase (&self->sock->pipes, &self->sock_item);
+    mb_list_item_term (&self->sock_item);
     mb_fsm_event_term (&self->out);
     mb_fsm_event_term (&self->in);
     mb_fsm_term (&self->fsm);
@@ -117,6 +121,14 @@ void mb_pipebase_cancel (struct mb_pipebase *self)
     self->state = MB_PIPEBASE_STATE_IDLE;
     self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
     self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
+}
+
+void mb_pipe_notify_rcvbuf (struct mb_pipe *self)
+{
+    struct mb_pipebase *base = (struct mb_pipebase *) self;
+
+    if (base->vfptr->on_rcvbuf)
+        base->vfptr->on_rcvbuf (base);
 }
 
 void mb_pipebase_received (struct mb_pipebase *self)

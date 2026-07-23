@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <poll.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -497,6 +498,69 @@ static void test_inproc_rcvbuf_after_connect (void)
     printf ("  test_inproc_rcvbuf_after_connect: PASSED\n");
 }
 
+/* Enlarging MB_RCVBUF must wake a peer blocked on a cached SNDFD. */
+static void test_inproc_rcvbuf_enlarge_wakes_sndfd (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int rcvbuf = 64;
+    int raised = 4096;
+    int sndfd = -1;
+    size_t sz;
+    char buf[32];
+    struct pollfd pfd;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &rcvbuf, sizeof (rcvbuf));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "inproc://test_rcvbuf_wake");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://test_rcvbuf_wake");
+    assert (rc >= 0);
+
+    sz = sizeof (sndfd);
+    rc = mb_getsockopt (s2, MB_SOL_SOCKET, MB_SNDFD, &sndfd, &sz);
+    assert (rc == 0);
+    assert (sndfd >= 0);
+
+    memset (buf, 'W', sizeof (buf));
+    for (i = 0; i < 16; ++i) {
+        rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            break;
+        }
+    }
+    assert (i >= 1);
+    assert (rc < 0);
+
+    /* Receiver raises RCVBUF without reading — must signal peer sndfd. */
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &raised, sizeof (raised));
+    assert (rc == 0);
+
+    pfd.fd = sndfd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    rc = poll (&pfd, 1, 500);
+    assert (rc > 0);
+    assert (pfd.revents & POLLIN);
+
+    rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc == (int) sizeof (buf));
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+    printf ("  test_inproc_rcvbuf_enlarge_wakes_sndfd: PASSED\n");
+}
+
 /*  MB_RCVBUF/MB_SNDBUF <= 0 must be rejected (would disable inproc caps). */
 static void test_inproc_buf_rejects_nonpositive (void)
 {
@@ -636,6 +700,7 @@ int main (void)
     test_inproc_ins_connect_oom ();
     test_inproc_rcvbuf_backpressure ();
     test_inproc_rcvbuf_after_connect ();
+    test_inproc_rcvbuf_enlarge_wakes_sndfd ();
     test_inproc_buf_rejects_nonpositive ();
     test_inproc_rcvmaxsize ();
     printf ("test_inproc: ALL PASSED\n");

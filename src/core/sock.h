@@ -35,6 +35,7 @@ struct mb_sock {
 
     struct mb_list eps;
     struct mb_list sdeps;
+    struct mb_list pipes; /* active pipebases (for option fan-out) */
     int eid;
     int holds;
 
