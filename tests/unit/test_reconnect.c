@@ -2,10 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 #include <unistd.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
+
+#include "../../src/pal/sleep.h"
 
 static void test_reconnect_auto (void)
 {
@@ -93,12 +96,36 @@ static void test_reconnect_backoff_option (void)
     printf ("  test_reconnect_backoff_option: PASSED\n");
 }
 
+/* Doubling near INT_MAX must clamp, never overflow to a negative sleep. */
+static void test_reconnect_backoff_no_overflow (void)
+{
+    int ivl;
+    int i;
+
+    assert (mb_reconnect_next_ivl (100, 1000) == 200);
+    assert (mb_reconnect_next_ivl (800, 1000) == 1000);
+    assert (mb_reconnect_next_ivl (1000, 1000) == 1000);
+    assert (mb_reconnect_next_ivl (50, 0) == 50);
+
+    ivl = INT_MAX / 2 + 1;
+    assert (mb_reconnect_next_ivl (ivl, INT_MAX) == INT_MAX);
+
+    ivl = 1000;
+    for (i = 0; i < 40; ++i)
+        ivl = mb_reconnect_next_ivl (ivl, INT_MAX);
+    assert (ivl == INT_MAX);
+    assert (ivl > 0);
+
+    printf ("  test_reconnect_backoff_no_overflow: PASSED\n");
+}
+
 int main (void)
 {
     printf ("Reconnect Tests:\n");
 
     test_reconnect_disabled ();
     test_reconnect_backoff_option ();
+    test_reconnect_backoff_no_overflow ();
     test_reconnect_auto ();
 
     printf ("\nAll reconnect tests PASSED\n");

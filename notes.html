@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-165 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-166 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2141,6 +2141,18 @@ li { margin: 5px 0; }
 <li>[x] <b>efd</b>: atomic CAS signal + re-arm after drain</li>
 <li>[x] <b>sock</b>: recheck events after unsignal</li>
 <li>[x] tests: <code>efd_signal_unsignal_race</code>, <code>poll_rcvfd_inproc_race</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 166 — Overflow-safe Reconnect Backoff</h2>
+<span class="status done">DONE</span>
+<p>Reconnect loops doubled <code>current_ivl</code> with signed <code>*= 2</code>. Near <code>INT_MAX</code> that overflows (UB); a negative interval makes <code>mb_msleep_while</code> return immediately and the reconnect thread busy-spins. Clamp via <code>mb_reconnect_next_ivl</code> across TCP/IPC/TLS/WS/WSS clients.</p>
+<ul>
+<li>[x] <b>sleep</b>: <code>mb_reconnect_next_ivl</code></li>
+<li>[x] all reconnect client transports use it</li>
+<li>[x] test: <code>test_reconnect_backoff_no_overflow</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

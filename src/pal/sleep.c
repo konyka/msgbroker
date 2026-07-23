@@ -49,3 +49,12 @@ void mb_msleep_while (volatile int *running, int milliseconds)
         waited += slice;
     }
 }
+
+int mb_reconnect_next_ivl (int current_ivl, int ivl_max)
+{
+    if (ivl_max <= 0 || current_ivl >= ivl_max)
+        return current_ivl;
+    if (current_ivl > ivl_max / 2)
+        return ivl_max;
+    return current_ivl * 2;
+}

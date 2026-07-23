@@ -221,10 +221,7 @@ static void mb_cws_reconnect_loop (void *arg)
             if (fd == -ECANCELED)
                 break;
             mb_msleep_while (&self->running, current_ivl);
-            if (ivl_max > 0 && current_ivl < ivl_max)
-                current_ivl *= 2;
-            if (current_ivl > ivl_max && ivl_max > 0)
-                current_ivl = ivl_max;
+            current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
             continue;
         }
 
@@ -234,10 +231,7 @@ static void mb_cws_reconnect_loop (void *arg)
             if (!self->running)
                 break;
             mb_msleep_while (&self->running, current_ivl);
-            if (ivl_max > 0 && current_ivl < ivl_max)
-                current_ivl *= 2;
-            if (current_ivl > ivl_max && ivl_max > 0)
-                current_ivl = ivl_max;
+            current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
             continue;
         }
 

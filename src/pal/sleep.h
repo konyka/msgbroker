@@ -8,4 +8,7 @@ void mb_msleep (int milliseconds);
  * Used by reconnect backoff so stop()/join is not blocked for the full ivl. */
 void mb_msleep_while (volatile int *running, int milliseconds);
 
+/* Double reconnect backoff without signed overflow; clamp to ivl_max. */
+int mb_reconnect_next_ivl (int current_ivl, int ivl_max);
+
 #endif
