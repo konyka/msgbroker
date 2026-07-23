@@ -317,6 +317,7 @@ int mb_net_bind (const char *host, uint16_t port, int backlog)
     int fd;
     int rc;
     int flag = 1;
+    int last_err = EADDRNOTAVAIL;
     const char *bind_host;
 
     memset (&hints, 0, sizeof (hints));
@@ -337,8 +338,10 @@ int mb_net_bind (const char *host, uint16_t port, int backlog)
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         fd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (fd < 0)
+        if (fd < 0) {
+            last_err = errno;
             continue;
+        }
 
         setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof (flag));
 
@@ -357,10 +360,11 @@ int mb_net_bind (const char *host, uint16_t port, int backlog)
                 return fd;
             }
         }
+        last_err = errno;
 
         close (fd);
     }
 
     freeaddrinfo (result);
-    return -EADDRNOTAVAIL;
+    return -last_err;
 }

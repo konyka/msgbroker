@@ -952,6 +952,29 @@ static void test_tcp_sipc_int_overflow_header (void)
     printf ("  test_tcp_sipc_int_overflow_header: PASSED\n");
 }
 
+/* Duplicate bind must surface EADDRINUSE, not a generic EADDRNOTAVAIL. */
+static void test_tcp_bind_addr_in_use (void)
+{
+    int s1, s2;
+    int rc;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18882");
+    assert (rc >= 0);
+
+    rc = mb_bind (s2, "tcp://127.0.0.1:18882");
+    assert (rc < 0);
+    assert (mb_errno () == EADDRINUSE);
+
+    mb_close (s2);
+    mb_close (s1);
+    printf ("  test_tcp_bind_addr_in_use: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -971,6 +994,7 @@ int main (void)
     test_pub_poll_polout_after_backpressure ();
     test_tcp_outbuf_flush_via_pollin ();
     test_tcp_sipc_int_overflow_header ();
+    test_tcp_bind_addr_in_use ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }
