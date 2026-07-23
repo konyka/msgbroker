@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -219,6 +220,39 @@ static void test_cmsg_zero_len_no_loop (void)
     printf ("  cmsg_zero_len_no_loop: OK\n");
 }
 
+/* Huge cmsg_len must not wrap ALIGN to 0 and spin NXTHDR forever. */
+static void test_cmsg_huge_len_no_loop (void)
+{
+    char cbuf[128];
+    struct mb_msghdr hdr;
+    struct mb_cmsghdr *cmsg;
+    int count;
+
+    memset (cbuf, 0, sizeof (cbuf));
+    memset (&hdr, 0, sizeof (hdr));
+    hdr.msg_control = cbuf;
+    hdr.msg_controllen = sizeof (cbuf);
+
+    cmsg = (struct mb_cmsghdr *) cbuf;
+    cmsg->cmsg_len = SIZE_MAX;
+    cmsg->cmsg_level = 99;
+    cmsg->cmsg_type = 1;
+
+    cmsg = MB_CMSG_FIRSTHDR (&hdr);
+    assert (cmsg != NULL);
+    assert (MB_CMSG_NXTHDR (&hdr, cmsg) == NULL);
+
+    count = 0;
+    for (cmsg = MB_CMSG_FIRSTHDR (&hdr); cmsg;
+         cmsg = MB_CMSG_NXTHDR (&hdr, cmsg)) {
+        ++count;
+        assert (count < 8);
+    }
+    assert (count == 1);
+
+    printf ("  cmsg_huge_len_no_loop: OK\n");
+}
+
 int main (void)
 {
     printf ("test_cmsg:\n");
@@ -229,6 +263,7 @@ int main (void)
     test_cmsg_recvmsg_no_control ();
     test_sendmsg_short_sphdr_cmsg ();
     test_cmsg_zero_len_no_loop ();
+    test_cmsg_huge_len_no_loop ();
     printf ("test_cmsg: PASSED\n");
     return 0;
 }

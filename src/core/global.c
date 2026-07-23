@@ -876,30 +876,35 @@ struct mb_cmsghdr *mb_cmsg_nxthdr_ (const struct mb_msghdr *mhdr,
 {
     const unsigned char *ptr;
     const unsigned char *end;
-    struct mb_cmsghdr *next;
+    size_t remain;
+    size_t aligned;
 
     if (!mhdr || !mhdr->msg_control || mhdr->msg_controllen < sizeof (struct mb_cmsghdr))
         return NULL;
 
     end = (const unsigned char *) mhdr->msg_control + mhdr->msg_controllen;
 
+    /* FIRSTHDR: return the first slot; caller may fill cmsg_len afterwards. */
     if (!cmsg) {
         ptr = (const unsigned char *) mhdr->msg_control;
-    } else {
-        /* Undersized cmsg_len does not advance → NXTHDR would loop forever. */
-        if (cmsg->cmsg_len < sizeof (struct mb_cmsghdr))
+        if (ptr + sizeof (struct mb_cmsghdr) > end)
             return NULL;
-        ptr = (const unsigned char *) cmsg + MB_CMSG_ALIGN_(cmsg->cmsg_len);
+        return (struct mb_cmsghdr *) ptr;
     }
 
+    /* NXTHDR: reject undersized or wrapping cmsg_len (ALIGN can become 0). */
+    remain = (size_t) (end - (const unsigned char *) cmsg);
+    if (cmsg->cmsg_len < sizeof (struct mb_cmsghdr) ||
+        cmsg->cmsg_len > remain)
+        return NULL;
+    aligned = MB_CMSG_ALIGN_ (cmsg->cmsg_len);
+    if (aligned < cmsg->cmsg_len || aligned > remain)
+        return NULL;
+
+    ptr = (const unsigned char *) cmsg + aligned;
     if (ptr + sizeof (struct mb_cmsghdr) > end)
         return NULL;
-
-    next = (struct mb_cmsghdr *) ptr;
-    if (ptr + MB_CMSG_ALIGN_(next->cmsg_len) > end)
-        return NULL;
-
-    return next;
+    return (struct mb_cmsghdr *) ptr;
 }
 
 uint64_t mb_get_statistic (int s, int stat)
