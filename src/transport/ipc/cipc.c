@@ -92,13 +92,19 @@ static void mb_cipc_reconnect_loop (void *arg)
         }
         self->sipc = sipc;
         mb_sipc_set_on_error (sipc, mb_cipc_on_disconnect, self);
-        if (mb_sipc_start (sipc) < 0) {
-            self->sipc = NULL;
-            mb_sipc_term (sipc);
-            mb_free (sipc);
-            mb_mutex_unlock (&self->lock);
-            mb_msleep_while (&self->running, current_ivl);
-            continue;
+        {
+            int rc = mb_sipc_start (sipc);
+            if (rc < 0) {
+                self->sipc = NULL;
+                mb_sipc_term (sipc);
+                mb_free (sipc);
+                mb_mutex_unlock (&self->lock);
+                /* Permanent protocol reject — do not spin forever. */
+                if (rc == -EISCONN)
+                    break;
+                mb_msleep_while (&self->running, current_ivl);
+                continue;
+            }
         }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);

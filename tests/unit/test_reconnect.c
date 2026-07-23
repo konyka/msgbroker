@@ -119,6 +119,88 @@ static void test_reconnect_backoff_no_overflow (void)
     printf ("  test_reconnect_backoff_no_overflow: PASSED\n");
 }
 
+/* PAIR bind occupies the only pipe; outbound reconnect must stop on EISCONN. */
+static void test_reconnect_eisconn_stops (void)
+{
+    int s, peer, target;
+    int rc;
+    int ivl = 50;
+    int tmo = 200;
+    uint64_t cur;
+    char buf[8];
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+    peer = mb_socket (AF_MB, MB_PAIR);
+    assert (peer >= 0);
+    target = mb_socket (AF_MB, MB_PAIR);
+    assert (target >= 0);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
+    assert (rc == 0);
+
+    rc = mb_bind (s, "tcp://127.0.0.1:18890");
+    assert (rc >= 0);
+
+    /* No listener yet — create returns with reconnect thread running. */
+    rc = mb_connect (s, "tcp://127.0.0.1:18891");
+    assert (rc >= 0);
+
+    rc = mb_connect (peer, "tcp://127.0.0.1:18890");
+    assert (rc >= 0);
+    usleep (100000);
+
+    cur = mb_get_statistic (s, MB_STAT_CURRENT_CONNECTIONS);
+    assert (cur == 1);
+
+    rc = mb_bind (target, "tcp://127.0.0.1:18891");
+    assert (rc >= 0);
+
+    /* Wait until outbound reconnect hits EISCONN (sticky ep error). */
+    {
+        int i;
+        uint64_t ep_err = 0;
+
+        for (i = 0; i < 50; ++i) {
+            ep_err = mb_get_statistic (s, MB_STAT_CURRENT_EP_ERRORS);
+            if (ep_err >= 1)
+                break;
+            usleep (50000);
+        }
+        assert (ep_err >= 1);
+    }
+
+    assert (mb_get_statistic (s, MB_STAT_ESTABLISHED_CONNECTIONS) == 0);
+    assert (mb_get_statistic (s, MB_STAT_CURRENT_CONNECTIONS) == 1);
+
+    /* Drop inbound peer and force the bind session to notice EOF. */
+    mb_close (peer);
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVTIMEO, &tmo, sizeof (tmo));
+    assert (rc == 0);
+    (void) mb_recv (s, buf, sizeof (buf), 0);
+
+    {
+        int i;
+
+        for (i = 0; i < 50; ++i) {
+            cur = mb_get_statistic (s, MB_STAT_CURRENT_CONNECTIONS);
+            if (cur == 0)
+                break;
+            usleep (50000);
+        }
+        assert (cur == 0);
+    }
+
+    /* Spinning reconnect would seize the free PAIR slot via outbound. */
+    usleep (500000);
+    assert (mb_get_statistic (s, MB_STAT_CURRENT_CONNECTIONS) == 0);
+    assert (mb_get_statistic (s, MB_STAT_ESTABLISHED_CONNECTIONS) == 0);
+
+    mb_close (target);
+    mb_close (s);
+    printf ("  test_reconnect_eisconn_stops: PASSED\n");
+}
+
 int main (void)
 {
     printf ("Reconnect Tests:\n");
@@ -127,6 +209,7 @@ int main (void)
     test_reconnect_backoff_option ();
     test_reconnect_backoff_no_overflow ();
     test_reconnect_auto ();
+    test_reconnect_eisconn_stops ();
 
     printf ("\nAll reconnect tests PASSED\n");
     return 0;

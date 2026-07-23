@@ -183,13 +183,19 @@ static void mb_ctls_reconnect_loop (void *arg)
         }
         self->stls = stls;
         mb_stls_set_on_error (stls, mb_ctls_on_disconnect, self);
-        if (mb_stls_start (stls) < 0) {
-            self->stls = NULL;
-            mb_stls_term (stls);
-            mb_free (stls);
-            mb_mutex_unlock (&self->lock);
-            mb_msleep_while (&self->running, current_ivl);
-            continue;
+        {
+            int rc = mb_stls_start (stls);
+            if (rc < 0) {
+                self->stls = NULL;
+                mb_stls_term (stls);
+                mb_free (stls);
+                mb_mutex_unlock (&self->lock);
+                /* Permanent protocol reject — do not spin forever. */
+                if (rc == -EISCONN)
+                    break;
+                mb_msleep_while (&self->running, current_ivl);
+                continue;
+            }
         }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);

@@ -362,13 +362,19 @@ static void mb_cwss_reconnect_loop (void *arg)
             return;
         }
         self->sws = sws;
-        if (mb_sws_start (sws) < 0) {
-            self->sws = NULL;
-            mb_sws_term (sws);
-            mb_free (sws);
-            mb_mutex_unlock (&self->lock);
-            mb_msleep_while (&self->running, current_ivl);
-            continue;
+        {
+            int rc = mb_sws_start (sws);
+            if (rc < 0) {
+                self->sws = NULL;
+                mb_sws_term (sws);
+                mb_free (sws);
+                mb_mutex_unlock (&self->lock);
+                /* Permanent protocol reject — do not spin forever. */
+                if (rc == -EISCONN)
+                    break;
+                mb_msleep_while (&self->running, current_ivl);
+                continue;
+            }
         }
         self->reconnecting = 0;
         mb_mutex_unlock (&self->lock);
