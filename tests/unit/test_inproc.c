@@ -504,6 +504,9 @@ static void test_inproc_buf_rejects_nonpositive (void)
     int rc;
     int zero = 0;
     int neg = -1;
+    int unlimited = -1;
+    int got;
+    size_t gotlen;
 
     s = mb_socket (AF_MB, MB_PAIR);
     assert (s >= 0);
@@ -523,6 +526,19 @@ static void test_inproc_buf_rejects_nonpositive (void)
     rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_SNDBUF, &neg, sizeof (neg));
     assert (rc == -1);
     assert (mb_errno () == EINVAL);
+
+    /* MB_RCVMAXSIZE: 0 is invalid; -1 means unlimited. */
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVMAXSIZE, &zero, sizeof (zero));
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVMAXSIZE, &unlimited,
+        sizeof (unlimited));
+    assert (rc == 0);
+    gotlen = sizeof (got);
+    rc = mb_getsockopt (s, MB_SOL_SOCKET, MB_RCVMAXSIZE, &got, &gotlen);
+    assert (rc == 0);
+    assert (got == -1);
 
     rc = mb_close (s);
     assert (rc == 0);

@@ -246,7 +246,14 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
             self->rcvbuf = v;
             return 0;
         }
-        case MB_RCVMAXSIZE:       self->rcvmaxsize = *(const int *)optval; return 0;
+        case MB_RCVMAXSIZE: {
+            int v = *(const int *)optval;
+            /* -1 = unlimited; 0 would reject every non-empty message. */
+            if (v < -1 || v == 0)
+                return -EINVAL;
+            self->rcvmaxsize = v;
+            return 0;
+        }
         case MB_SNDTIMEO:         self->sndtimeo = *(const int *)optval; return 0;
         case MB_RCVTIMEO:         self->rcvtimeo = *(const int *)optval; return 0;
         case MB_RECONNECT_IVL:    self->reconnect_ivl = *(const int *)optval; return 0;
