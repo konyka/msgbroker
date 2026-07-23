@@ -952,6 +952,35 @@ static void test_tcp_sipc_int_overflow_header (void)
     printf ("  test_tcp_sipc_int_overflow_header: PASSED\n");
 }
 
+/* Port 0 must bind (ephemeral); trailing junk / >65535 must fail. */
+static void test_tcp_bind_port_zero_and_parse (void)
+{
+    int s;
+    int rc;
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+    rc = mb_bind (s, "tcp://127.0.0.1:0");
+    assert (rc >= 0);
+    mb_close (s);
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+    rc = mb_bind (s, "tcp://127.0.0.1:18880xyz");
+    assert (rc < 0);
+    assert (mb_errno () == EINVAL);
+    mb_close (s);
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+    rc = mb_bind (s, "tcp://127.0.0.1:65536");
+    assert (rc < 0);
+    assert (mb_errno () == EINVAL);
+    mb_close (s);
+
+    printf ("  test_tcp_bind_port_zero_and_parse: PASSED\n");
+}
+
 /* Duplicate bind must surface EADDRINUSE, not a generic EADDRNOTAVAIL. */
 static void test_tcp_bind_addr_in_use (void)
 {
@@ -995,6 +1024,7 @@ int main (void)
     test_tcp_outbuf_flush_via_pollin ();
     test_tcp_sipc_int_overflow_header ();
     test_tcp_bind_addr_in_use ();
+    test_tcp_bind_port_zero_and_parse ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }

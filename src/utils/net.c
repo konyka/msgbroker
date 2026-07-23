@@ -50,9 +50,14 @@ int mb_net_parse_addr (const char *addr, char *host, size_t hostlen,
     host[host_end - host_start] = '\0';
     portstr++;
 
-    p = strtoul (portstr, NULL, 10);
-    if (p == 0 || p > 65535)
-        return -EINVAL;
+    {
+        char *end = NULL;
+
+        p = strtoul (portstr, &end, 10);
+        /* Allow port 0 (ephemeral bind). Reject empty/trailing junk/>65535. */
+        if (end == portstr || *end != '\0' || p > 65535)
+            return -EINVAL;
+    }
     *port = (uint16_t) p;
     return 0;
 }
