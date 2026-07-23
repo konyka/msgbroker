@@ -165,6 +165,35 @@ static void test_ipc_multiple_messages (void)
     printf ("  test_ipc_multiple_messages: PASSED\n");
 }
 
+/* Same PAIR socket connecting twice must fail with EISCONN (not reconnect). */
+static void test_ipc_pair_second_connect (void)
+{
+    int a, b;
+    int rc;
+
+    a = mb_socket (AF_MB, MB_PAIR);
+    assert (a >= 0);
+    b = mb_socket (AF_MB, MB_PAIR);
+    assert (b >= 0);
+
+    rc = mb_bind (a, "ipc:///tmp/mb_test_ipc_pair2");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_connect (b, "ipc:///tmp/mb_test_ipc_pair2");
+    assert (rc >= 0);
+    usleep (100000);
+
+    rc = mb_connect (b, "ipc:///tmp/mb_test_ipc_pair2");
+    assert (rc < 0);
+    assert (mb_errno () == EISCONN);
+
+    mb_close (b);
+    mb_close (a);
+    unlink ("/tmp/mb_test_ipc_pair2");
+    printf ("  test_ipc_pair_second_connect: PASSED\n");
+}
+
 /* Paths that do not fit sun_path must fail, not silently truncate. */
 static void test_ipc_path_too_long (void)
 {
@@ -210,6 +239,7 @@ int main (void)
     test_ipc_connect_refused ();
     test_ipc_multiple_messages ();
     test_ipc_path_too_long ();
+    test_ipc_pair_second_connect ();
     printf ("test_ipc: ALL PASSED\n");
     return 0;
 }

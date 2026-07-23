@@ -225,11 +225,14 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
 
     mb_stls_create (self->stls, self->ep, ssl);
     mb_stls_set_on_error (self->stls, mb_ctls_on_disconnect, self);
-    if (mb_stls_start (self->stls) < 0) {
-        mb_stls_term (self->stls);
-        mb_free (self->stls);
-        self->stls = NULL;
-        return -ECONNREFUSED;
+    {
+        int rc = mb_stls_start (self->stls);
+        if (rc < 0) {
+            mb_stls_term (self->stls);
+            mb_free (self->stls);
+            self->stls = NULL;
+            return rc;
+        }
     }
     return 0;
 }
@@ -265,7 +268,7 @@ int mb_ctls_create (struct mb_ep *ep)
     if (rc >= 0)
         return 0;
 
-    if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+    if (mb_ep_sock (ep)->reconnect_ivl > 0 && rc != -EISCONN) {
         int tries;
         int started = 0;
 

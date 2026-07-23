@@ -952,6 +952,36 @@ static void test_tcp_sipc_int_overflow_header (void)
     printf ("  test_tcp_sipc_int_overflow_header: PASSED\n");
 }
 
+/* Same PAIR socket connecting twice must fail with EISCONN (not reconnect). */
+static void test_tcp_pair_second_connect (void)
+{
+    int a, b;
+    int rc;
+
+    a = mb_socket (AF_MB, MB_PAIR);
+    assert (a >= 0);
+    b = mb_socket (AF_MB, MB_PAIR);
+    assert (b >= 0);
+
+    rc = mb_bind (a, "tcp://127.0.0.1:18883");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_connect (b, "tcp://127.0.0.1:18883");
+    assert (rc >= 0);
+    usleep (100000);
+
+    /* Second endpoint on the already-connected PAIR socket. Default
+       reconnect_ivl must not turn EISCONN into a false success. */
+    rc = mb_connect (b, "tcp://127.0.0.1:18883");
+    assert (rc < 0);
+    assert (mb_errno () == EISCONN);
+
+    mb_close (b);
+    mb_close (a);
+    printf ("  test_tcp_pair_second_connect: PASSED\n");
+}
+
 /* "0.0.0.0" must bind IPv4-any, not be remapped to dual-stack NULL. */
 static void test_tcp_bind_ipv4_any_literal (void)
 {
@@ -1046,6 +1076,7 @@ int main (void)
     test_tcp_bind_addr_in_use ();
     test_tcp_bind_port_zero_and_parse ();
     test_tcp_bind_ipv4_any_literal ();
+    test_tcp_pair_second_connect ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }

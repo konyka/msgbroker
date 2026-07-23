@@ -297,11 +297,14 @@ static int mb_cws_do_connect (struct mb_cws *self)
 
     mb_sws_create (self->sws, self->ep, fd, 1);
     mb_sws_set_on_error (self->sws, mb_cws_on_disconnect, self);
-    if (mb_sws_start (self->sws) < 0) {
-        mb_sws_term (self->sws);
-        mb_free (self->sws);
-        self->sws = NULL;
-        return -ECONNREFUSED;
+    {
+        int rc = mb_sws_start (self->sws);
+        if (rc < 0) {
+            mb_sws_term (self->sws);
+            mb_free (self->sws);
+            self->sws = NULL;
+            return rc;
+        }
     }
     return 0;
 }
@@ -337,7 +340,7 @@ int mb_cws_create (struct mb_ep *ep)
     if (rc >= 0)
         return 0;
 
-    if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+    if (mb_ep_sock (ep)->reconnect_ivl > 0 && rc != -EISCONN) {
         int tries;
         int started = 0;
 

@@ -116,11 +116,14 @@ static int mb_ctcp_do_connect (struct mb_ctcp *self)
 
     mb_sipc_create (self->sipc, self->ep, fd);
     mb_sipc_set_on_error (self->sipc, mb_ctcp_on_disconnect, self);
-    if (mb_sipc_start (self->sipc) < 0) {
-        mb_sipc_term (self->sipc);
-        mb_free (self->sipc);
-        self->sipc = NULL;
-        return -ECONNREFUSED;
+    {
+        int rc = mb_sipc_start (self->sipc);
+        if (rc < 0) {
+            mb_sipc_term (self->sipc);
+            mb_free (self->sipc);
+            self->sipc = NULL;
+            return rc;
+        }
     }
     return 0;
 }
@@ -156,7 +159,9 @@ int mb_ctcp_create (struct mb_ep *ep)
     if (rc >= 0)
         return 0;
 
-    if (mb_ep_sock (ep)->reconnect_ivl > 0) {
+    /* Protocol rejects (e.g. PAIR already connected) must not look like
+       a transient refusal that auto-reconnect would "fix". */
+    if (mb_ep_sock (ep)->reconnect_ivl > 0 && rc != -EISCONN) {
         int tries;
         int started = 0;
 
