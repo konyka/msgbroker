@@ -87,7 +87,7 @@ static int mb_trie_rm_rec (struct mb_trie_node *n, const uint8_t *data,
 
     if (len == 0) {
         if (!n->subscribed)
-            return -1;
+            return -ENOENT;
         n->subscribed = 0;
         if (n->refcount > 0)
             n->refcount--;
@@ -96,7 +96,7 @@ static int mb_trie_rm_rec (struct mb_trie_node *n, const uint8_t *data,
 
     child = n->children[data[0]];
     if (!child)
-        return -1;
+        return -ENOENT;
 
     rc = mb_trie_rm_rec (child, data + 1, len - 1);
     if (rc < 0)
@@ -115,7 +115,7 @@ static int mb_trie_rm_rec (struct mb_trie_node *n, const uint8_t *data,
 int mb_trie_rm (struct mb_trie *self, const void *data, size_t len)
 {
     if (!self->root)
-        return -1;
+        return -ENOENT;
     return mb_trie_rm_rec (self->root, (const uint8_t *) data, len);
 }
 

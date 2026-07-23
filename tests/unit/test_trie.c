@@ -50,7 +50,7 @@ int main (void)
     assert (mb_trie_add (&t, "dup", 3) == 0);
     assert (mb_trie_rm (&t, "dup", 3) == 1);
     assert (!mb_trie_match (&t, "dup", 3));
-    assert (mb_trie_rm (&t, "dup", 3) < 0);
+    assert (mb_trie_rm (&t, "dup", 3) == -ENOENT);
 
     /* Repeated add/rm should not leave dead nodes that break re-add. */
     {
@@ -77,7 +77,7 @@ int main (void)
     /* Null root: no crash; add reports ENOMEM. */
     t.root = NULL;
     assert (mb_trie_match (&t, "x", 1) == 0);
-    assert (mb_trie_rm (&t, "x", 1) < 0);
+    assert (mb_trie_rm (&t, "x", 1) == -ENOENT);
     assert (mb_trie_add (&t, "x", 1) == -ENOMEM);
 
     printf ("test_trie: PASSED\n");

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include <unistd.h>
 
 #include <msgbroker/mb.h>
@@ -23,6 +24,11 @@ static void test_sub_subscribe_unsubscribe (void)
 
     rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_UNSUBSCRIBE, "sports", 6);
     assert (rc == 0);
+
+    /* Missing topic must be ENOENT, not EPERM from a bare -1. */
+    rc = mb_setsockopt (sub, MB_SUB_PROTO, MB_SUB_UNSUBSCRIBE, "nope", 4);
+    assert (rc < 0);
+    assert (mb_errno () == ENOENT);
 
     mb_close (sub);
 
