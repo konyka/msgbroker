@@ -11,6 +11,14 @@ static int mb_msgqueue_fits_locked (const struct mb_msgqueue *self, size_t sz)
     return sz <= self->maxmem && self->mem <= self->maxmem - sz;
 }
 
+/* Empty bodies still need headroom when capped — matches can_push's fits(1). */
+static size_t mb_msgqueue_check_sz (const struct mb_msgqueue *self, size_t sz)
+{
+    if (self->maxmem > 0 && sz == 0)
+        return 1;
+    return sz;
+}
+
 void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem)
 {
     self->in.chunk = NULL;
@@ -79,7 +87,7 @@ int mb_msgqueue_can_push_sz (struct mb_msgqueue *self, size_t sz)
     int ok;
 
     mb_mutex_lock (&self->sync);
-    ok = mb_msgqueue_fits_locked (self, sz);
+    ok = mb_msgqueue_fits_locked (self, mb_msgqueue_check_sz (self, sz));
     mb_mutex_unlock (&self->sync);
     return ok;
 }
@@ -124,12 +132,17 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
     mb_mutex_lock (&self->sync);
 
     sz = mb_chunkref_size (&msg->body);
-    /* Cap includes this message; avoid overflow and single oversized push. */
-    if (!mb_msgqueue_fits_locked (self, sz)) {
-        if (self->maxmem > 0)
-            self->pending_sz = sz;
-        mb_mutex_unlock (&self->sync);
-        return -EAGAIN;
+    /* Cap includes this message; avoid overflow and single oversized push.
+     * Zero-size bodies still require fits(1) headroom so a full queue cannot
+     * accept unbounded empty messages while can_push stays false. */
+    {
+        size_t check_sz = mb_msgqueue_check_sz (self, sz);
+        if (!mb_msgqueue_fits_locked (self, check_sz)) {
+            if (self->maxmem > 0)
+                self->pending_sz = check_sz;
+            mb_mutex_unlock (&self->sync);
+            return -EAGAIN;
+        }
     }
 
     was_empty = (self->count == 0);

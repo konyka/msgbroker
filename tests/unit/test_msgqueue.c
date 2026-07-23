@@ -173,6 +173,42 @@ static void test_msgqueue_can_push_matches_size (void)
     printf ("  test_msgqueue_can_push_matches_size: PASSED\n");
 }
 
+/* Full byte quota must reject empty pushes (same as can_push / SNDFD). */
+static void test_msgqueue_full_rejects_empty (void)
+{
+    struct mb_msgqueue mq;
+    struct mb_msg msg;
+    char body[32];
+
+    memset (body, 'z', sizeof (body));
+    mb_msgqueue_init (&mq, 32);
+
+    mb_msg_init_data (&msg, body, 32);
+    assert (mb_msgqueue_push (&mq, &msg) >= 0);
+    mb_msg_term (&msg);
+    assert (mq.mem == 32);
+    assert (mb_msgqueue_can_push (&mq) == 0);
+    assert (mb_msgqueue_can_push_sz (&mq, 0) == 0);
+
+    mb_msg_init (&msg, 0);
+    assert (mb_msgqueue_push (&mq, &msg) == -EAGAIN);
+    mb_msg_term (&msg);
+    assert (mq.count == 1);
+
+    mb_msg_init (&msg, 0);
+    mb_msgqueue_pop (&mq, &msg);
+    mb_msg_term (&msg);
+    assert (mb_msgqueue_can_push (&mq) == 1);
+    assert (mb_msgqueue_can_push_sz (&mq, 0) == 1);
+
+    mb_msg_init (&msg, 0);
+    assert (mb_msgqueue_push (&mq, &msg) >= 0);
+    mb_msg_term (&msg);
+
+    mb_msgqueue_term (&mq);
+    printf ("  test_msgqueue_full_rejects_empty: PASSED\n");
+}
+
 int main (void)
 {
     printf ("msgqueue tests:\n");
@@ -180,6 +216,7 @@ int main (void)
     test_msgqueue_full_chunk_deferred_alloc ();
     test_msgqueue_maxmem_includes_push ();
     test_msgqueue_can_push_matches_size ();
+    test_msgqueue_full_rejects_empty ();
     printf ("All msgqueue tests passed.\n");
     return 0;
 }
