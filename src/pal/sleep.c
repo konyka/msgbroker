@@ -50,10 +50,20 @@ void mb_msleep_while (volatile int *running, int milliseconds)
     }
 }
 
+int mb_reconnect_cap_ivl (int ivl, int ivl_max)
+{
+    if (ivl_max > 0 && ivl > ivl_max)
+        return ivl_max;
+    return ivl;
+}
+
 int mb_reconnect_next_ivl (int current_ivl, int ivl_max)
 {
-    if (ivl_max <= 0 || current_ivl >= ivl_max)
+    if (ivl_max <= 0)
         return current_ivl;
+    /* Cap even when current already exceeds max (misconfigured ivl > max). */
+    if (current_ivl >= ivl_max)
+        return ivl_max;
     if (current_ivl > ivl_max / 2)
         return ivl_max;
     return current_ivl * 2;

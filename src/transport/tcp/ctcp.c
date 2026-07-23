@@ -42,7 +42,7 @@ static void mb_ctcp_reconnect_loop (void *arg)
     struct mb_ctcp *self = (struct mb_ctcp *) arg;
     int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
     int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
-    int current_ivl = ivl;
+    int current_ivl = mb_reconnect_cap_ivl (ivl, ivl_max);
 
     mb_mutex_lock (&self->lock);
     mb_ctcp_free_zombie (self);

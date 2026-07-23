@@ -298,7 +298,7 @@ static void mb_cwss_reconnect_loop (void *arg)
     struct mb_cwss *self = (struct mb_cwss *) arg;
     int ivl = mb_ep_sock (self->ep)->reconnect_ivl;
     int ivl_max = mb_ep_sock (self->ep)->reconnect_ivl_max;
-    int current_ivl = ivl;
+    int current_ivl = mb_reconnect_cap_ivl (ivl, ivl_max);
 
     mb_mutex_lock (&self->lock);
     mb_cwss_free_zombie (self);

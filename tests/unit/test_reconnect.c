@@ -102,9 +102,15 @@ static void test_reconnect_backoff_no_overflow (void)
     int ivl;
     int i;
 
+    assert (mb_reconnect_cap_ivl (5000, 1000) == 1000);
+    assert (mb_reconnect_cap_ivl (50, 1000) == 50);
+    assert (mb_reconnect_cap_ivl (50, 0) == 50);
+
     assert (mb_reconnect_next_ivl (100, 1000) == 200);
     assert (mb_reconnect_next_ivl (800, 1000) == 1000);
     assert (mb_reconnect_next_ivl (1000, 1000) == 1000);
+    /* ivl already above max must clamp down, not stick at the high value. */
+    assert (mb_reconnect_next_ivl (5000, 1000) == 1000);
     assert (mb_reconnect_next_ivl (50, 0) == 50);
 
     ivl = INT_MAX / 2 + 1;
