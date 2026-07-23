@@ -25,6 +25,8 @@ struct mb_msgqueue {
     size_t count;
     size_t mem;
     size_t maxmem;
+    /* Last size that failed push for capacity; can_push waits until it fits. */
+    size_t pending_sz;
     struct mb_msgqueue_chunk *cache;
     /* Protects concurrent peer push vs local pop (different sock ctx). */
     struct mb_mutex sync;
@@ -34,8 +36,10 @@ void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem);
 void mb_msgqueue_set_maxmem (struct mb_msgqueue *self, size_t maxmem);
 void mb_msgqueue_term (struct mb_msgqueue *self);
 int mb_msgqueue_empty (struct mb_msgqueue *self);
-/* Non-destructive: 1 if push would not hit maxmem (0 maxmem = unlimited). */
+/* Non-destructive: 1 if a push of pending/typical size would succeed. */
 int mb_msgqueue_can_push (struct mb_msgqueue *self);
+/* Non-destructive: 1 if push of exactly sz would succeed (0 maxmem = unlimited). */
+int mb_msgqueue_can_push_sz (struct mb_msgqueue *self, size_t sz);
 /* Returns 1 if the queue was empty before the push, 0 if not, <0 on error. */
 int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg);
 void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg);

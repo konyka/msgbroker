@@ -134,12 +134,52 @@ static void test_msgqueue_maxmem_includes_push (void)
     printf ("  test_msgqueue_maxmem_includes_push: PASSED\n");
 }
 
+/* can_push must not stay true when the next fixed-size push cannot fit. */
+static void test_msgqueue_can_push_matches_size (void)
+{
+    struct mb_msgqueue mq;
+    struct mb_msg msg;
+    char body[32];
+
+    memset (body, 'y', sizeof (body));
+    mb_msgqueue_init (&mq, 65);
+
+    mb_msg_init_data (&msg, body, 32);
+    assert (mb_msgqueue_push (&mq, &msg) >= 0);
+    mb_msg_term (&msg);
+    mb_msg_init_data (&msg, body, 32);
+    assert (mb_msgqueue_push (&mq, &msg) >= 0);
+    mb_msg_term (&msg);
+    assert (mq.mem == 64);
+
+    /* 1 byte free — can_push_sz(32) false; after failed push, can_push too. */
+    assert (mb_msgqueue_can_push_sz (&mq, 32) == 0);
+    assert (mb_msgqueue_can_push_sz (&mq, 1) == 1);
+
+    mb_msg_init_data (&msg, body, 32);
+    assert (mb_msgqueue_push (&mq, &msg) == -EAGAIN);
+    mb_msg_term (&msg);
+    assert (mb_msgqueue_can_push (&mq) == 0);
+    assert (mb_msgqueue_can_push_sz (&mq, 32) == 0);
+
+    mb_msg_init (&msg, 0);
+    mb_msgqueue_pop (&mq, &msg);
+    mb_msg_term (&msg);
+    assert (mq.mem == 32);
+    assert (mb_msgqueue_can_push (&mq) == 1);
+    assert (mb_msgqueue_can_push_sz (&mq, 32) == 1);
+
+    mb_msgqueue_term (&mq);
+    printf ("  test_msgqueue_can_push_matches_size: PASSED\n");
+}
+
 int main (void)
 {
     printf ("msgqueue tests:\n");
     test_msgqueue_multi_chunk ();
     test_msgqueue_full_chunk_deferred_alloc ();
     test_msgqueue_maxmem_includes_push ();
+    test_msgqueue_can_push_matches_size ();
     printf ("All msgqueue tests passed.\n");
     return 0;
 }
