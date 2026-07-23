@@ -231,8 +231,21 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
             return -EINVAL;
 
         switch (option) {
-        case MB_SNDBUF:           self->sndbuf = *(const int *)optval; return 0;
-        case MB_RCVBUF:           self->rcvbuf = *(const int *)optval; return 0;
+        case MB_SNDBUF: {
+            int v = *(const int *)optval;
+            if (v <= 0)
+                return -EINVAL;
+            self->sndbuf = v;
+            return 0;
+        }
+        case MB_RCVBUF: {
+            int v = *(const int *)optval;
+            /* msgqueue treats maxmem==0 as unlimited; reject before that. */
+            if (v <= 0)
+                return -EINVAL;
+            self->rcvbuf = v;
+            return 0;
+        }
         case MB_RCVMAXSIZE:       self->rcvmaxsize = *(const int *)optval; return 0;
         case MB_SNDTIMEO:         self->sndtimeo = *(const int *)optval; return 0;
         case MB_RCVTIMEO:         self->rcvtimeo = *(const int *)optval; return 0;

@@ -30,9 +30,12 @@ int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)
 
     self->peer = NULL;
     mb_pipebase_init (&self->pipebase, &mb_sinproc_vfptr, ep);
-    /* Queue holds messages for this end — cap by local MB_RCVBUF. */
+    /* Queue holds messages for this end — cap by local MB_RCVBUF.
+     * maxmem==0 means unlimited in msgqueue; never pass that through. */
     rcvbuf = mb_ep_sock (ep)->rcvbuf;
-    maxmem = rcvbuf > 0 ? (size_t) rcvbuf : 0;
+    if (rcvbuf <= 0)
+        rcvbuf = 1024 * 1024;
+    maxmem = (size_t) rcvbuf;
     mb_msgqueue_init (&self->msgqueue, maxmem);
     mb_list_item_init (&self->item);
     return 0;

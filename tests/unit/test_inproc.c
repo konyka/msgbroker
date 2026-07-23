@@ -447,6 +447,38 @@ static void test_inproc_rcvbuf_backpressure (void)
     printf ("  test_inproc_rcvbuf_backpressure: PASSED\n");
 }
 
+/*  MB_RCVBUF/MB_SNDBUF <= 0 must be rejected (would disable inproc caps). */
+static void test_inproc_buf_rejects_nonpositive (void)
+{
+    int s;
+    int rc;
+    int zero = 0;
+    int neg = -1;
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVBUF, &zero, sizeof (zero));
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVBUF, &neg, sizeof (neg));
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_SNDBUF, &zero, sizeof (zero));
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_SNDBUF, &neg, sizeof (neg));
+    assert (rc == -1);
+    assert (mb_errno () == EINVAL);
+
+    rc = mb_close (s);
+    assert (rc == 0);
+    printf ("  test_inproc_buf_rejects_nonpositive: PASSED\n");
+}
+
 /*  MB_RCVMAXSIZE must reject oversized inproc sends (sender or receiver). */
 static void test_inproc_rcvmaxsize (void)
 {
@@ -537,6 +569,7 @@ int main (void)
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
     test_inproc_rcvbuf_backpressure ();
+    test_inproc_buf_rejects_nonpositive ();
     test_inproc_rcvmaxsize ();
     printf ("test_inproc: ALL PASSED\n");
     return 0;
