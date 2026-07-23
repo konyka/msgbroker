@@ -332,7 +332,8 @@ int mb_net_bind (const char *host, uint16_t port, int backlog)
 
     snprintf (port_str, sizeof (port_str), "%u", port);
 
-    if (strcmp (host, "*") == 0 || strcmp (host, "0.0.0.0") == 0)
+    /* "*" → dual-stack passive (NULL). Keep "0.0.0.0" as IPv4-any only. */
+    if (strcmp (host, "*") == 0)
         bind_host = NULL;
     else
         bind_host = host;

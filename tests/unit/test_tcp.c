@@ -952,6 +952,26 @@ static void test_tcp_sipc_int_overflow_header (void)
     printf ("  test_tcp_sipc_int_overflow_header: PASSED\n");
 }
 
+/* "0.0.0.0" must bind IPv4-any, not be remapped to dual-stack NULL. */
+static void test_tcp_bind_ipv4_any_literal (void)
+{
+    int fd;
+    struct sockaddr_storage ss;
+    socklen_t sslen = sizeof (ss);
+    struct sockaddr_in *sin;
+
+    fd = mb_net_bind ("0.0.0.0", 0, 1);
+    assert (fd >= 0);
+    memset (&ss, 0, sizeof (ss));
+    assert (getsockname (fd, (struct sockaddr *) &ss, &sslen) == 0);
+    assert (ss.ss_family == AF_INET);
+    sin = (struct sockaddr_in *) &ss;
+    assert (sin->sin_addr.s_addr == htonl (INADDR_ANY));
+    close (fd);
+
+    printf ("  test_tcp_bind_ipv4_any_literal: PASSED\n");
+}
+
 /* Port 0 must bind (ephemeral); trailing junk / >65535 must fail. */
 static void test_tcp_bind_port_zero_and_parse (void)
 {
@@ -1025,6 +1045,7 @@ int main (void)
     test_tcp_sipc_int_overflow_header ();
     test_tcp_bind_addr_in_use ();
     test_tcp_bind_port_zero_and_parse ();
+    test_tcp_bind_ipv4_any_literal ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }
