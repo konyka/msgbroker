@@ -636,6 +636,8 @@ static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghd
         size_t n = msghdr->msg_iov[i].iov_len;
         if (n > SIZE_MAX - total)
             return -EMSGSIZE;
+        if (n > 0 && !msghdr->msg_iov[i].iov_base)
+            return -EFAULT;
         total += n;
     }
 
