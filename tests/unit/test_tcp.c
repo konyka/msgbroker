@@ -1054,6 +1054,66 @@ static void test_tcp_bind_addr_in_use (void)
     printf ("  test_tcp_bind_addr_in_use: PASSED\n");
 }
 
+/* MB_SNDBUF/MB_RCVBUF after connect must apply to the stream fd. */
+static void test_tcp_buf_after_connect (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int ok = 0;
+    int bufsz = 4096;
+    int linger = 0;
+    char chunk[1024];
+    char rbuf[8];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:19980");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "tcp://127.0.0.1:19980");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &bufsz, sizeof (bufsz));
+    assert (rc == 0);
+
+    /* Trigger sipc sync on the receive side (and later on send). */
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    memset (chunk, 'B', sizeof (chunk));
+    for (i = 0; i < 64; ++i) {
+        rc = mb_send (s2, chunk, sizeof (chunk), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            break;
+        }
+        assert (rc == (int) sizeof (chunk));
+        ok++;
+    }
+    /* With ~4KB sockets (kernel may double), far below the default ~1MB path. */
+    assert (i < 64);
+    assert (ok < 48);
+
+    /* Avoid linger flush stall with a full outbound outbuf. */
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+    printf ("  test_tcp_buf_after_connect: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -1063,6 +1123,7 @@ int main (void)
     test_tcp_rcvmaxsize ();
     test_net_apply_bufs ();
     test_tcp_sockbufs ();
+    test_tcp_buf_after_connect ();
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();

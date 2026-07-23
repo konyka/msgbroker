@@ -124,6 +124,19 @@ static int mb_sipc_recv_fd (int fd, void *buf, size_t len)
     return (int) got;
 }
 
+/* Honor live MB_SNDBUF/MB_RCVBUF after connect (create only snapshots). */
+static void mb_sipc_sync_bufs (struct mb_sipc *self)
+{
+    struct mb_sock *sock;
+
+    if (self->fd < 0 || self->disconnected)
+        return;
+    sock = self->pipebase.sock;
+    if (!sock)
+        return;
+    mb_net_apply_bufs (self->fd, sock->sndbuf, sock->rcvbuf);
+}
+
 int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
 {
     struct mb_sock *sock;
@@ -272,6 +285,8 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
         return -ECONNRESET;
     }
 
+    mb_sipc_sync_bufs (self);
+
     rc = mb_sipc_flush_outbuf (self);
     if (rc < 0)
         return rc;
@@ -317,6 +332,8 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_sipc_report_error (self);
         return -ECONNRESET;
     }
+
+    mb_sipc_sync_bufs (self);
 
     /* Best-effort: write backpressure must not block delivery of reads. */
     rc = mb_sipc_flush_outbuf (self);
