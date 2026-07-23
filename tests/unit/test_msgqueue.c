@@ -204,9 +204,42 @@ static void test_msgqueue_full_rejects_empty (void)
     mb_msg_init (&msg, 0);
     assert (mb_msgqueue_push (&mq, &msg) >= 0);
     mb_msg_term (&msg);
+    assert (mq.mem == 1);
 
     mb_msgqueue_term (&mq);
     printf ("  test_msgqueue_full_rejects_empty: PASSED\n");
+}
+
+/* Empty bodies charge 1 against maxmem so floods cannot bypass the cap. */
+static void test_msgqueue_empty_counts_against_maxmem (void)
+{
+    struct mb_msgqueue mq;
+    struct mb_msg msg;
+    int i;
+
+    mb_msgqueue_init (&mq, 100);
+
+    for (i = 0; i < 100; ++i) {
+        mb_msg_init (&msg, 0);
+        assert (mb_msgqueue_push (&mq, &msg) >= 0);
+        mb_msg_term (&msg);
+    }
+    assert (mq.mem == 100);
+    assert (mq.count == 100);
+    assert (mb_msgqueue_can_push (&mq) == 0);
+
+    mb_msg_init (&msg, 0);
+    assert (mb_msgqueue_push (&mq, &msg) == -EAGAIN);
+    mb_msg_term (&msg);
+
+    mb_msg_init (&msg, 0);
+    mb_msgqueue_pop (&mq, &msg);
+    mb_msg_term (&msg);
+    assert (mq.mem == 99);
+    assert (mb_msgqueue_can_push (&mq) == 1);
+
+    mb_msgqueue_term (&mq);
+    printf ("  test_msgqueue_empty_counts_against_maxmem: PASSED\n");
 }
 
 int main (void)
@@ -217,6 +250,7 @@ int main (void)
     test_msgqueue_maxmem_includes_push ();
     test_msgqueue_can_push_matches_size ();
     test_msgqueue_full_rejects_empty ();
+    test_msgqueue_empty_counts_against_maxmem ();
     printf ("All msgqueue tests passed.\n");
     return 0;
 }

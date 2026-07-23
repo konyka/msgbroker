@@ -133,16 +133,14 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
 
     sz = mb_chunkref_size (&msg->body);
     /* Cap includes this message; avoid overflow and single oversized push.
-     * Zero-size bodies still require fits(1) headroom so a full queue cannot
-     * accept unbounded empty messages while can_push stays false. */
-    {
-        size_t check_sz = mb_msgqueue_check_sz (self, sz);
-        if (!mb_msgqueue_fits_locked (self, check_sz)) {
-            if (self->maxmem > 0)
-                self->pending_sz = check_sz;
-            mb_mutex_unlock (&self->sync);
-            return -EAGAIN;
-        }
+     * Zero-size bodies still require fits(1) headroom and charge 1 against
+     * mem so empty floods cannot bypass MB_RCVBUF while can_push stays true. */
+    sz = mb_msgqueue_check_sz (self, sz);
+    if (!mb_msgqueue_fits_locked (self, sz)) {
+        if (self->maxmem > 0)
+            self->pending_sz = sz;
+        mb_mutex_unlock (&self->sync);
+        return -EAGAIN;
     }
 
     was_empty = (self->count == 0);
@@ -205,7 +203,7 @@ void mb_msgqueue_pop (struct mb_msgqueue *self, struct mb_msg *msg)
 
     mb_msg_mv (msg, &self->in.chunk->msgs[self->in.pos]);
     --self->count;
-    self->mem -= mb_chunkref_size (&msg->body);
+    self->mem -= mb_msgqueue_check_sz (self, mb_chunkref_size (&msg->body));
     ++self->in.pos;
 
     /* Advance past a fully consumed chunk:
