@@ -218,7 +218,7 @@ static int mb_sub_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_sub_ispeer (int socktype)
 {
-    return socktype == MB_PUB;
+    return socktype == MB_PUB || socktype == MB_XPUB;
 }
 
 const struct mb_socktype mb_sub_socktype = {

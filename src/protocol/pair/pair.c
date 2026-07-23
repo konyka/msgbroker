@@ -134,7 +134,7 @@ static int mb_pair_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_pair_ispeer (int socktype)
 {
-    return socktype == MB_PAIR;
+    return socktype == MB_PAIR || socktype == MB_XPAIR;
 }
 
 const struct mb_socktype mb_pair_socktype = {

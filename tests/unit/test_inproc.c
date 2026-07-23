@@ -286,6 +286,54 @@ static void test_inproc_proto_mismatch (void)
     printf ("  test_inproc_proto_mismatch: PASSED\n");
 }
 
+/* Cooked↔raw peers must connect (Phase 143 bidirectional ispeer). */
+static void test_inproc_cooked_raw_peers (void)
+{
+    int cooked, raw;
+    int rc;
+    char buf[32];
+
+    cooked = mb_socket (AF_MB, MB_SUB);
+    assert (cooked >= 0);
+    raw = mb_socket (AF_MB, MB_XPUB);
+    assert (raw >= 0);
+
+    rc = mb_setsockopt (cooked, MB_SUB_PROTO, MB_SUB_SUBSCRIBE, "", 0);
+    assert (rc == 0);
+
+    rc = mb_bind (cooked, "inproc://cooked_raw_sub_xpub");
+    assert (rc >= 0);
+    rc = mb_connect (raw, "inproc://cooked_raw_sub_xpub");
+    assert (rc >= 0);
+
+    rc = mb_send (raw, "hi", 2, 0);
+    assert (rc == 2);
+    rc = mb_recv (cooked, buf, sizeof (buf), 0);
+    assert (rc == 2);
+    assert (memcmp (buf, "hi", 2) == 0);
+
+    mb_close (raw);
+    mb_close (cooked);
+
+    cooked = mb_socket (AF_MB, MB_PUB);
+    assert (cooked >= 0);
+    raw = mb_socket (AF_MB, MB_XSUB);
+    assert (raw >= 0);
+
+    rc = mb_bind (cooked, "inproc://cooked_raw_pub_xsub");
+    assert (rc >= 0);
+    rc = mb_connect (raw, "inproc://cooked_raw_pub_xsub");
+    assert (rc >= 0);
+
+    rc = mb_send (cooked, "ok", 2, 0);
+    assert (rc == 2);
+
+    mb_close (raw);
+    mb_close (cooked);
+
+    printf ("  test_inproc_cooked_raw_peers: PASSED\n");
+}
+
 /* Compatible PUB/SUB still connects. */
 static void test_inproc_pubsub_ok (void)
 {
@@ -456,6 +504,7 @@ int main (void)
     test_inproc_large_message ();
     test_inproc_pair_second_connect ();
     test_inproc_proto_mismatch ();
+    test_inproc_cooked_raw_peers ();
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
     test_inproc_rcvbuf_backpressure ();

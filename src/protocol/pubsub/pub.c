@@ -161,7 +161,7 @@ static int mb_pub_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_pub_ispeer (int socktype)
 {
-    return socktype == MB_SUB;
+    return socktype == MB_SUB || socktype == MB_XSUB;
 }
 
 const struct mb_socktype mb_pub_socktype = {

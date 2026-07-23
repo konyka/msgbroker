@@ -124,7 +124,7 @@ static int mb_pull_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_pull_ispeer (int socktype)
 {
-    return socktype == MB_PUSH;
+    return socktype == MB_PUSH || socktype == MB_XPUSH;
 }
 
 const struct mb_socktype mb_pull_socktype = {

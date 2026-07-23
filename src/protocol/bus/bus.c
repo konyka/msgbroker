@@ -197,7 +197,7 @@ static int mb_bus_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_bus_ispeer (int socktype)
 {
-    return socktype == MB_BUS;
+    return socktype == MB_BUS || socktype == MB_XBUS;
 }
 
 const struct mb_socktype mb_bus_socktype = {

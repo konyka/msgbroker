@@ -318,7 +318,7 @@ static int mb_surveyor_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_surveyor_ispeer (int socktype)
 {
-    return socktype == MB_RESPONDENT;
+    return socktype == MB_RESPONDENT || socktype == MB_XRESPONDENT;
 }
 
 const struct mb_socktype mb_surveyor_socktype = {

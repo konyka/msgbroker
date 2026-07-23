@@ -185,7 +185,7 @@ static int mb_rep_create (void *hint, struct mb_sockbase **sockbase)
 
 static int mb_rep_ispeer (int socktype)
 {
-    return socktype == MB_REQ;
+    return socktype == MB_REQ || socktype == MB_XREQ;
 }
 
 const struct mb_socktype mb_rep_socktype = {
