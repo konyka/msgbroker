@@ -585,6 +585,17 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                 int masked = (self->inhdr[1] & MB_WS_MASK_BIT) ? 1 : 0;
                 int hdr_used = 2;
 
+                /* RFC 6455 §5.1: client→server MUST mask; server→client MUST NOT. */
+                if (self->is_client) {
+                    if (masked) {
+                        mb_sws_report_error (self);
+                        return -EPROTO;
+                    }
+                } else if (!masked) {
+                    mb_sws_report_error (self);
+                    return -EPROTO;
+                }
+
                 if (payload_len_byte < 126) {
                     self->payload_len = (int) payload_len_byte;
                 } else if (payload_len_byte == 126) {

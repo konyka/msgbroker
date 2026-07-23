@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-159 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-160 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2074,6 +2074,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sws</b>: 8-byte plen ≤ INT_MAX</li>
 <li>[x] test: <code>test_ws_payload_len_int_overflow</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 160 — Enforce WebSocket Mask Role (RFC 6455)</h2>
+<span class="status done">DONE</span>
+<p>Receive path ignored MASK vs role: servers accepted unmasked client frames, and clients would XOR-corrupt masked server frames. Enforce client→server MUST mask and server→client MUST NOT.</p>
+<ul>
+<li>[x] <b>sws</b>: reject wrong MASK for <code>is_client</code></li>
+<li>[x] test: <code>test_ws_reject_unmasked_client_frame</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>
