@@ -16,9 +16,22 @@
 #include <stdint.h>
 #endif
 
+static void mb_efd_write_once (struct mb_efd *self)
+{
+#if defined _WIN32
+    SetEvent (self->event);
+#elif defined MB_HAVE_EVENTFD
+    uint64_t val = 1;
+    (void) write (self->fd, &val, sizeof (val));
+#else
+    char c = 1;
+    (void) write (self->fds [1], &c, 1);
+#endif
+}
+
 void mb_efd_init (struct mb_efd *self)
 {
-    self->signaled = 0;
+    mb_atomic_store (&self->signaled, 0);
 #if defined _WIN32
     self->event = CreateEvent (NULL, TRUE, FALSE, NULL);
 #elif defined MB_HAVE_EVENTFD
@@ -56,32 +69,30 @@ int mb_efd_getfd (struct mb_efd *self)
 
 void mb_efd_signal (struct mb_efd *self)
 {
-    if (self->signaled)
+    int expected = 0;
+
+    /* Only the 0→1 transition writes; concurrent signals coalesce. */
+    if (!mb_atomic_cas (&self->signaled, &expected, 1))
         return;
-    self->signaled = 1;
-#if defined _WIN32
-    SetEvent (self->event);
-#elif defined MB_HAVE_EVENTFD
-    uint64_t val = 1;
-    write (self->fd, &val, sizeof (val));
-#else
-    char c = 1;
-    write (self->fds [1], &c, 1);
-#endif
+    mb_efd_write_once (self);
 }
 
 void mb_efd_unsignal (struct mb_efd *self)
 {
-    self->signaled = 0;
+    mb_atomic_store (&self->signaled, 0);
 #if defined _WIN32
     ResetEvent (self->event);
 #elif defined MB_HAVE_EVENTFD
     uint64_t val;
-    read (self->fd, &val, sizeof (val));
+    (void) read (self->fd, &val, sizeof (val));
 #else
     char buf [16];
     while (read (self->fds [0], buf, sizeof (buf)) > 0) {}
 #endif
+    /* A concurrent signal may have written then been drained above, or
+       set the flag after our clear. Re-arm the kernel object if needed. */
+    if (mb_atomic_load (&self->signaled))
+        mb_efd_write_once (self);
 }
 
 int mb_efd_wait (struct mb_efd *self, int timeout_ms)

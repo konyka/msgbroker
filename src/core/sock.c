@@ -27,10 +27,15 @@ static void mb_sock_sync_sndfd (struct mb_sock *self)
     if (!self->sockbase || !self->sockbase->vfptr->events)
         return;
     ev = self->sockbase->vfptr->events (self->sockbase);
-    if (ev & MB_SOCKBASE_EVENT_OUT)
+    if (ev & MB_SOCKBASE_EVENT_OUT) {
         mb_efd_signal (&self->sndfd);
-    else
+    } else {
         mb_efd_unsignal (&self->sndfd);
+        /* Peer may have become writable between events() and unsignal. */
+        ev = self->sockbase->vfptr->events (self->sockbase);
+        if (ev & MB_SOCKBASE_EVENT_OUT)
+            mb_efd_signal (&self->sndfd);
+    }
 }
 
 static void mb_sock_sync_rcvfd (struct mb_sock *self)
@@ -40,10 +45,16 @@ static void mb_sock_sync_rcvfd (struct mb_sock *self)
     if (!self->sockbase || !self->sockbase->vfptr->events)
         return;
     ev = self->sockbase->vfptr->events (self->sockbase);
-    if (ev & MB_SOCKBASE_EVENT_IN)
+    if (ev & MB_SOCKBASE_EVENT_IN) {
         mb_efd_signal (&self->rcvfd);
-    else
+    } else {
         mb_efd_unsignal (&self->rcvfd);
+        /* Inproc peer may enqueue + signal between events() and unsignal;
+           recheck so MB_RCVFD / poll cannot lose POLLIN. */
+        ev = self->sockbase->vfptr->events (self->sockbase);
+        if (ev & MB_SOCKBASE_EVENT_IN)
+            mb_efd_signal (&self->rcvfd);
+    }
 }
 
 static void mb_sock_handler (struct mb_fsm *self, int src, int type,

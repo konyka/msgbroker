@@ -1,12 +1,14 @@
 #ifndef MB_EFD_H_INCLUDED
 #define MB_EFD_H_INCLUDED
 
+#include "atomic.h"
+
 #if defined _WIN32
 #include "win.h"
 #endif
 
 struct mb_efd {
-    int signaled;
+    mb_atomic_int signaled;
 #if defined _WIN32
     HANDLE event;
 #elif defined MB_HAVE_EVENTFD
