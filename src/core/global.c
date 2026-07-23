@@ -886,6 +886,9 @@ struct mb_cmsghdr *mb_cmsg_nxthdr_ (const struct mb_msghdr *mhdr,
     if (!cmsg) {
         ptr = (const unsigned char *) mhdr->msg_control;
     } else {
+        /* Undersized cmsg_len does not advance → NXTHDR would loop forever. */
+        if (cmsg->cmsg_len < sizeof (struct mb_cmsghdr))
+            return NULL;
         ptr = (const unsigned char *) cmsg + MB_CMSG_ALIGN_(cmsg->cmsg_len);
     }
 

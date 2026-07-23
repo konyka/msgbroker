@@ -173,6 +173,52 @@ static void test_sendmsg_short_sphdr_cmsg (void)
     printf ("  sendmsg_short_sphdr_cmsg: OK\n");
 }
 
+/* cmsg_len=0 must not make NXTHDR/sendmsg spin forever. */
+static void test_cmsg_zero_len_no_loop (void)
+{
+    int s, rc;
+    char b = 'x';
+    char cbuf[128];
+    struct mb_iovec iov;
+    struct mb_msghdr hdr;
+    struct mb_cmsghdr *cmsg;
+    int count;
+
+    memset (cbuf, 0, sizeof (cbuf));
+    memset (&hdr, 0, sizeof (hdr));
+    hdr.msg_control = cbuf;
+    hdr.msg_controllen = sizeof (cbuf);
+
+    cmsg = (struct mb_cmsghdr *) cbuf;
+    cmsg->cmsg_len = 0;
+    cmsg->cmsg_level = 99;
+    cmsg->cmsg_type = 1;
+
+    cmsg = MB_CMSG_FIRSTHDR (&hdr);
+    assert (cmsg != NULL);
+    assert (MB_CMSG_NXTHDR (&hdr, cmsg) == NULL);
+
+    count = 0;
+    for (cmsg = MB_CMSG_FIRSTHDR (&hdr); cmsg;
+         cmsg = MB_CMSG_NXTHDR (&hdr, cmsg)) {
+        ++count;
+        assert (count < 8);
+    }
+    assert (count == 1);
+
+    s = mb_socket (AF_MB, MB_PAIR);
+    assert (s >= 0);
+    iov.iov_base = &b;
+    iov.iov_len = 1;
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    rc = mb_sendmsg (s, &hdr, MB_DONTWAIT);
+    assert (rc == -1);
+    mb_close (s);
+
+    printf ("  cmsg_zero_len_no_loop: OK\n");
+}
+
 int main (void)
 {
     printf ("test_cmsg:\n");
@@ -182,6 +228,7 @@ int main (void)
     test_cmsg_macros ();
     test_cmsg_recvmsg_no_control ();
     test_sendmsg_short_sphdr_cmsg ();
+    test_cmsg_zero_len_no_loop ();
     printf ("test_cmsg: PASSED\n");
     return 0;
 }
