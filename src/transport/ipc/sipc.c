@@ -10,6 +10,7 @@
 #include "../../pal/clock.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -280,6 +281,9 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
 
         if (mb_sock_msg_too_large (base->sock, body_size))
             return -EMSGSIZE;
+        /* outlen is int — reject before HDR+body overflows the cast. */
+        if (body_size > (size_t) INT_MAX - MB_SIPC_HDR_SIZE)
+            return -EMSGSIZE;
 
         self->outlen = (int) (MB_SIPC_HDR_SIZE + body_size);
         self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
@@ -347,7 +351,9 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg)
             return -EAGAIN;
 
         body_size = mb_wire_get_uint32 (self->inhdr);
-        if (mb_sock_msg_too_large (base->sock, (size_t) body_size)) {
+        /* inlen is int — reject values that would become negative. */
+        if (body_size > (uint32_t) INT_MAX ||
+            mb_sock_msg_too_large (base->sock, (size_t) body_size)) {
             mb_sipc_report_error (self);
             return -EMSGSIZE;
         }

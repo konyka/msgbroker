@@ -4,7 +4,10 @@
 #include <assert.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <errno.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -16,6 +19,7 @@
 #include "../../src/pal/thread.h"
 #include "../../src/pal/clock.h"
 #include "../../src/utils/net.h"
+#include "../../src/utils/wire.h"
 
 #define TEST_PORT 18888
 
@@ -897,6 +901,57 @@ static void test_tcp_outbuf_flush_via_pollin (void)
     printf ("  test_tcp_outbuf_flush_via_pollin: PASSED\n");
 }
 
+/*  sipc must reject wire lengths that overflow signed int inlen. */
+static void test_tcp_sipc_int_overflow_header (void)
+{
+    int s1;
+    int rc;
+    int unlimited = -1;
+    int raw;
+    uint8_t hdr[4];
+    char buf[16];
+    struct sockaddr_in sa;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVMAXSIZE, &unlimited,
+        sizeof (unlimited));
+    assert (rc == 0);
+    {
+        int rcvtimeo = 2000;
+        rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVTIMEO, &rcvtimeo,
+            sizeof (rcvtimeo));
+        assert (rc == 0);
+    }
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:18900");
+    assert (rc >= 0);
+    usleep (50000);
+
+    raw = socket (AF_INET, SOCK_STREAM, 0);
+    assert (raw >= 0);
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons (18900);
+    assert (inet_pton (AF_INET, "127.0.0.1", &sa.sin_addr) == 1);
+    rc = connect (raw, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+    usleep (100000);
+
+    /* body_size = 0x80000000 → (int) casts negative without the guard. */
+    mb_wire_put_uint32 (hdr, 0x80000000u);
+    rc = (int) send (raw, hdr, sizeof (hdr), 0);
+    assert (rc == (int) sizeof (hdr));
+
+    rc = mb_recv (s1, buf, sizeof (buf), 0);
+    assert (rc < 0);
+    assert (mb_errno () == EMSGSIZE || mb_errno () == ECONNRESET);
+
+    close (raw);
+    mb_close (s1);
+    printf ("  test_tcp_sipc_int_overflow_header: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -915,6 +970,7 @@ int main (void)
     test_xsurveyor_poll_polout_after_backpressure ();
     test_pub_poll_polout_after_backpressure ();
     test_tcp_outbuf_flush_via_pollin ();
+    test_tcp_sipc_int_overflow_header ();
     printf ("test_tcp: ALL PASSED\n");
     return 0;
 }

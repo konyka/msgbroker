@@ -10,6 +10,7 @@
 #include "../../pal/clock.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <unistd.h>
 #include <poll.h>
@@ -301,6 +302,8 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
 
         if (mb_sock_msg_too_large (base->sock, body_size))
             return -EMSGSIZE;
+        if (body_size > (size_t) INT_MAX - MB_STLS_HDR_SIZE)
+            return -EMSGSIZE;
 
         self->outlen = (int) (MB_STLS_HDR_SIZE + body_size);
         self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
@@ -359,11 +362,15 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg)
         if (self->inpos < MB_STLS_HDR_SIZE)
             return -EAGAIN;
 
-        self->inlen = (int) mb_wire_get_uint32 (self->inhdr);
-        if (self->inlen < 0 ||
-            mb_sock_msg_too_large (base->sock, (size_t) self->inlen)) {
-            mb_stls_report_error (self);
-            return -EMSGSIZE;
+        {
+            uint32_t body_size = mb_wire_get_uint32 (self->inhdr);
+
+            if (body_size > (uint32_t) INT_MAX ||
+                mb_sock_msg_too_large (base->sock, (size_t) body_size)) {
+                mb_stls_report_error (self);
+                return -EMSGSIZE;
+            }
+            self->inlen = (int) body_size;
         }
         self->inpos = 0;
         self->instate = MB_STLS_INSTATE_BODY;
