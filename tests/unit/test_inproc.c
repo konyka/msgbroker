@@ -399,6 +399,52 @@ static void test_inproc_rcvbuf_backpressure (void)
     printf ("  test_inproc_rcvbuf_backpressure: PASSED\n");
 }
 
+/*  MB_RCVMAXSIZE must reject oversized inproc sends (same as stream). */
+static void test_inproc_rcvmaxsize (void)
+{
+    int s1, s2;
+    int rc;
+    int max = 1024;
+    char small[512];
+    char *big;
+    char rbuf[512];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RCVMAXSIZE, &max, sizeof (max));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "inproc://test_rcvmax");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://test_rcvmax");
+    assert (rc >= 0);
+
+    big = (char *) malloc (2048);
+    assert (big != NULL);
+    memset (big, 'Z', 2048);
+    rc = mb_send (s2, big, 2048, 0);
+    assert (rc == -1);
+    assert (mb_errno () == EMSGSIZE);
+    free (big);
+
+    memset (small, 's', sizeof (small));
+    rc = mb_send (s2, small, sizeof (small), 0);
+    assert (rc == (int) sizeof (small));
+    rc = mb_recv (s1, rbuf, sizeof (rbuf), 0);
+    assert (rc == (int) sizeof (small));
+    assert (memcmp (rbuf, small, sizeof (small)) == 0);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+
+    printf ("  test_inproc_rcvmaxsize: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_inproc:\n");
@@ -413,6 +459,7 @@ int main (void)
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
     test_inproc_rcvbuf_backpressure ();
+    test_inproc_rcvmaxsize ();
     printf ("test_inproc: ALL PASSED\n");
     return 0;
 }
