@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 /* Multi-chunk push/pop must not lose messages across GRANULARITY. */
 static void test_msgqueue_multi_chunk (void)
@@ -98,11 +99,47 @@ static void test_msgqueue_full_chunk_deferred_alloc (void)
     printf ("  test_msgqueue_full_chunk_deferred_alloc: PASSED\n");
 }
 
+/* maxmem must account for the message being pushed, not only current mem. */
+static void test_msgqueue_maxmem_includes_push (void)
+{
+    struct mb_msgqueue mq;
+    struct mb_msg msg;
+    char body[64];
+
+    memset (body, 'x', sizeof (body));
+    mb_msgqueue_init (&mq, 32);
+
+    mb_msg_init_data (&msg, body, 20);
+    assert (mb_msgqueue_push (&mq, &msg) >= 0);
+    mb_msg_term (&msg);
+    assert (mq.mem == 20);
+
+    mb_msg_init_data (&msg, body, 20);
+    assert (mb_msgqueue_push (&mq, &msg) == -EAGAIN);
+    mb_msg_term (&msg);
+    assert (mq.mem == 20);
+
+    mb_msg_init (&msg, 0);
+    mb_msgqueue_pop (&mq, &msg);
+    mb_msg_term (&msg);
+    assert (mq.mem == 0);
+
+    mb_msg_init_data (&msg, body, 64);
+    assert (mb_msgqueue_push (&mq, &msg) == -EAGAIN);
+    mb_msg_term (&msg);
+    assert (mq.mem == 0);
+    assert (mb_msgqueue_empty (&mq));
+
+    mb_msgqueue_term (&mq);
+    printf ("  test_msgqueue_maxmem_includes_push: PASSED\n");
+}
+
 int main (void)
 {
     printf ("msgqueue tests:\n");
     test_msgqueue_multi_chunk ();
     test_msgqueue_full_chunk_deferred_alloc ();
+    test_msgqueue_maxmem_includes_push ();
     printf ("All msgqueue tests passed.\n");
     return 0;
 }

@@ -87,10 +87,14 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
 {
     struct mb_msgqueue_chunk *chunk;
     int was_empty;
+    size_t sz;
 
     mb_mutex_lock (&self->sync);
 
-    if (self->maxmem > 0 && self->mem >= self->maxmem) {
+    sz = mb_chunkref_size (&msg->body);
+    /* Cap includes this message; avoid overflow and single oversized push. */
+    if (self->maxmem > 0 &&
+        (sz > self->maxmem || self->mem > self->maxmem - sz)) {
         mb_mutex_unlock (&self->sync);
         return -EAGAIN;
     }
@@ -122,7 +126,7 @@ int mb_msgqueue_push (struct mb_msgqueue *self, struct mb_msg *msg)
     mb_msg_mv (&self->out.chunk->msgs[self->out.pos], msg);
     ++self->out.pos;
     ++self->count;
-    self->mem += mb_chunkref_size (&self->out.chunk->msgs[self->out.pos - 1].body);
+    self->mem += sz;
 
     /* Eagerly prepare the next chunk; failure is OK — next push allocates. */
     if (self->out.pos == MB_MSGQUEUE_GRANULARITY) {
