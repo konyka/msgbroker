@@ -596,6 +596,13 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     return -EPROTO;
                 }
 
+                /* No extensions: RSV must be 0. No fragmentation support: require FIN. */
+                if ((self->inhdr[0] & 0x70) != 0 ||
+                    !(self->inhdr[0] & MB_WS_FIN_BIT)) {
+                    mb_sws_report_error (self);
+                    return -EPROTO;
+                }
+
                 if (payload_len_byte < 126) {
                     self->payload_len = (int) payload_len_byte;
                 } else if (payload_len_byte == 126) {
