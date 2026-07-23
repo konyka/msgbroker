@@ -447,6 +447,50 @@ static void test_inproc_rcvbuf_backpressure (void)
     printf ("  test_inproc_rcvbuf_backpressure: PASSED\n");
 }
 
+/*  MB_RCVBUF after connect must still apply to the inproc queue. */
+static void test_inproc_rcvbuf_after_connect (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int hit_eagain = 0;
+    int rcvbuf = 64;
+    char buf[32];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "inproc://test_rcvbuf_late");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://test_rcvbuf_late");
+    assert (rc >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &rcvbuf, sizeof (rcvbuf));
+    assert (rc == 0);
+
+    memset (buf, 'L', sizeof (buf));
+    for (i = 0; i < 16; ++i) {
+        rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            hit_eagain = 1;
+            break;
+        }
+        assert (rc == (int) sizeof (buf));
+    }
+    assert (hit_eagain);
+    assert (i >= 1);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+
+    printf ("  test_inproc_rcvbuf_after_connect: PASSED\n");
+}
+
 /*  MB_RCVBUF/MB_SNDBUF <= 0 must be rejected (would disable inproc caps). */
 static void test_inproc_buf_rejects_nonpositive (void)
 {
@@ -569,6 +613,7 @@ int main (void)
     test_inproc_pubsub_ok ();
     test_inproc_ins_connect_oom ();
     test_inproc_rcvbuf_backpressure ();
+    test_inproc_rcvbuf_after_connect ();
     test_inproc_buf_rejects_nonpositive ();
     test_inproc_rcvmaxsize ();
     printf ("test_inproc: ALL PASSED\n");

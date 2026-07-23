@@ -17,6 +17,13 @@ void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem)
     mb_mutex_init (&self->sync);
 }
 
+void mb_msgqueue_set_maxmem (struct mb_msgqueue *self, size_t maxmem)
+{
+    mb_mutex_lock (&self->sync);
+    self->maxmem = maxmem;
+    mb_mutex_unlock (&self->sync);
+}
+
 void mb_msgqueue_term (struct mb_msgqueue *self)
 {
     struct mb_msgqueue_chunk *chunk;

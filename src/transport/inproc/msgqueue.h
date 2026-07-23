@@ -31,6 +31,7 @@ struct mb_msgqueue {
 };
 
 void mb_msgqueue_init (struct mb_msgqueue *self, size_t maxmem);
+void mb_msgqueue_set_maxmem (struct mb_msgqueue *self, size_t maxmem);
 void mb_msgqueue_term (struct mb_msgqueue *self);
 int mb_msgqueue_empty (struct mb_msgqueue *self);
 /* Non-destructive: 1 if push would not hit maxmem (0 maxmem = unlimited). */

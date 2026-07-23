@@ -23,6 +23,19 @@ static const struct mb_pipebase_vfptr mb_sinproc_vfptr = {
     mb_sinproc_can_send,
 };
 
+/* Honor live MB_RCVBUF after connect (create only snapshots the initial value). */
+static void mb_sinproc_sync_maxmem (struct mb_sinproc *self)
+{
+    int rcvbuf;
+
+    if (!self->pipebase.sock)
+        return;
+    rcvbuf = self->pipebase.sock->rcvbuf;
+    if (rcvbuf <= 0)
+        rcvbuf = 1024 * 1024;
+    mb_msgqueue_set_maxmem (&self->msgqueue, (size_t) rcvbuf);
+}
+
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)
 {
     int rcvbuf;
@@ -138,10 +151,13 @@ static int mb_sinproc_send (struct mb_pipebase *base, struct mb_msg *msg)
 
     /* push returns 1 when the queue was empty (wake peer); race-free under
      * msgqueue mutex so we do not lose the rcvfd signal. */
-    int rc = mb_msgqueue_push (&self->peer->msgqueue, msg);
-    if (rc > 0)
-        mb_efd_signal (&self->peer->pipebase.sock->rcvfd);
-    return rc < 0 ? rc : 0;
+    mb_sinproc_sync_maxmem (self->peer);
+    {
+        int rc = mb_msgqueue_push (&self->peer->msgqueue, msg);
+        if (rc > 0)
+            mb_efd_signal (&self->peer->pipebase.sock->rcvfd);
+        return rc < 0 ? rc : 0;
+    }
 }
 
 static int mb_sinproc_has_msg (struct mb_pipebase *base)
@@ -155,8 +171,10 @@ static int mb_sinproc_can_send (struct mb_pipebase *base)
 {
     struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
 
-    return self->peer != NULL &&
-        mb_msgqueue_can_push (&self->peer->msgqueue);
+    if (!self->peer)
+        return 0;
+    mb_sinproc_sync_maxmem (self->peer);
+    return mb_msgqueue_can_push (&self->peer->msgqueue);
 }
 
 static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
@@ -174,6 +192,7 @@ static int mb_sinproc_recv (struct mb_pipebase *base, struct mb_msg *msg)
         mb_efd_signal (&self->pipebase.sock->rcvfd);
 
     /* Peer may have blocked on our RCVBUF — wake its POLLOUT. */
+    mb_sinproc_sync_maxmem (self);
     if (self->peer && self->peer->pipebase.sock &&
         mb_msgqueue_can_push (&self->msgqueue))
         mb_efd_signal (&self->peer->pipebase.sock->sndfd);
