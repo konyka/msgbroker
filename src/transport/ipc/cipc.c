@@ -23,19 +23,21 @@ static const struct mb_ep_ops mb_cipc_ops = {
     mb_cipc_on_disconnect,
 };
 
-static const char *mb_cipc_parse_addr (const char *addr, char *path,
-    size_t pathlen)
+static int mb_cipc_parse_addr (const char *addr, char *path, size_t pathlen)
 {
     const char *sep;
+    size_t len;
 
     sep = strstr (addr, "://");
     if (!sep)
-        return NULL;
+        return -EINVAL;
     sep += 3;
-
-    strncpy (path, sep, pathlen - 1);
-    path[pathlen - 1] = '\0';
-    return path;
+    len = strlen (sep);
+    /* Must fit with NUL inside sun_path-sized buffer; do not truncate. */
+    if (len >= pathlen)
+        return -ENAMETOOLONG;
+    memcpy (path, sep, len + 1);
+    return 0;
 }
 
 static void mb_cipc_free_zombie (struct mb_cipc *self)
@@ -147,10 +149,16 @@ int mb_cipc_create (struct mb_ep *ep)
     self->zombie = NULL;
     self->running = 1;
     self->reconnecting = 0;
+    memset (self->path, 0, sizeof (self->path));
+    rc = mb_cipc_parse_addr (mb_ep_getaddr (ep), self->path,
+        sizeof (self->path));
+    if (rc < 0) {
+        mb_free (self);
+        return rc;
+    }
+
     mb_mutex_init (&self->lock);
     mb_thread_init (&self->reconnect_thread);
-
-    mb_cipc_parse_addr (mb_ep_getaddr (ep), self->path, sizeof (self->path));
 
     mb_ep_tran_setup (ep, &mb_cipc_ops, self);
 

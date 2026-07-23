@@ -64,19 +64,21 @@ static void mb_bipc_on_session_error (void *p)
     mb_mutex_unlock (&self->lock);
 }
 
-static const char *mb_bipc_parse_addr (const char *addr, char *path,
-    size_t pathlen)
+static int mb_bipc_parse_addr (const char *addr, char *path, size_t pathlen)
 {
     const char *sep;
+    size_t len;
 
     sep = strstr (addr, "://");
     if (!sep)
-        return NULL;
+        return -EINVAL;
     sep += 3;
-
-    strncpy (path, sep, pathlen - 1);
-    path[pathlen - 1] = '\0';
-    return path;
+    len = strlen (sep);
+    /* Must fit with NUL inside sun_path-sized buffer; do not truncate. */
+    if (len >= pathlen)
+        return -ENAMETOOLONG;
+    memcpy (path, sep, len + 1);
+    return 0;
 }
 
 static void mb_bipc_accept_loop (void *arg)
@@ -149,7 +151,12 @@ int mb_bipc_create (struct mb_ep *ep)
         return -ENOMEM;
 
     memset (self->path, 0, sizeof (self->path));
-    mb_bipc_parse_addr (mb_ep_getaddr (ep), self->path, sizeof (self->path));
+    rc = mb_bipc_parse_addr (mb_ep_getaddr (ep), self->path,
+        sizeof (self->path));
+    if (rc < 0) {
+        mb_free (self);
+        return rc;
+    }
 
     fd = socket (AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {

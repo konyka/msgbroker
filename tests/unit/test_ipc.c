@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include <unistd.h>
 
 #include <msgbroker/mb.h>
@@ -164,6 +165,43 @@ static void test_ipc_multiple_messages (void)
     printf ("  test_ipc_multiple_messages: PASSED\n");
 }
 
+/* Paths that do not fit sun_path must fail, not silently truncate. */
+static void test_ipc_path_too_long (void)
+{
+    int s1, s2;
+    int rc;
+    int ivl = 0;
+    char addr[MB_SOCKADDR_MAX + 1];
+    size_t i;
+
+    /* ipc:// + 109-byte path = 115 chars (<= MB_SOCKADDR_MAX), path won't fit. */
+    memcpy (addr, "ipc://", 6);
+    for (i = 6; i < 6 + 109; ++i)
+        addr[i] = 'a';
+    addr[6 + 109] = '\0';
+    assert (strlen (addr) <= MB_SOCKADDR_MAX);
+    assert (strlen (addr + 6) >= 108);
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    rc = mb_bind (s1, addr);
+    assert (rc < 0);
+    assert (mb_errno () == ENAMETOOLONG);
+    mb_close (s1);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl,
+        sizeof (ivl));
+    assert (rc == 0);
+    rc = mb_connect (s2, addr);
+    assert (rc < 0);
+    assert (mb_errno () == ENAMETOOLONG);
+    mb_close (s2);
+
+    printf ("  test_ipc_path_too_long: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_ipc:\n");
@@ -171,6 +209,7 @@ int main (void)
     test_ipc_large_message ();
     test_ipc_connect_refused ();
     test_ipc_multiple_messages ();
+    test_ipc_path_too_long ();
     printf ("test_ipc: ALL PASSED\n");
     return 0;
 }
