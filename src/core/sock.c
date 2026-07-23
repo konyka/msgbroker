@@ -340,6 +340,30 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
             *optvallen = n;
             return 0;
         }
+        case MB_STAT_ESTABLISHED_CONNECTIONS:
+        case MB_STAT_ACCEPTED_CONNECTIONS:
+        case MB_STAT_DROPPED_CONNECTIONS:
+        case MB_STAT_BROKEN_CONNECTIONS:
+        case MB_STAT_CONNECT_ERRORS:
+        case MB_STAT_BIND_ERRORS:
+        case MB_STAT_ACCEPT_ERRORS:
+        case MB_STAT_CURRENT_CONNECTIONS:
+        case MB_STAT_INPROGRESS_CONNECTIONS:
+        case MB_STAT_CURRENT_EP_ERRORS:
+        case MB_STAT_MESSAGES_SENT:
+        case MB_STAT_MESSAGES_RECEIVED:
+        case MB_STAT_BYTES_SENT:
+        case MB_STAT_BYTES_RECEIVED:
+        case MB_STAT_CURRENT_SND_PRIORITY: {
+            uint64_t st;
+
+            if (!optval || !optvallen || *optvallen < sizeof (uint64_t))
+                return -EINVAL;
+            st = mb_sock_get_statistic (self, option);
+            memcpy (optval, &st, sizeof (uint64_t));
+            *optvallen = sizeof (uint64_t);
+            return 0;
+        }
         default:
             break;
         }

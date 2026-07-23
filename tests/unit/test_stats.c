@@ -77,6 +77,8 @@ static void test_connection_stats (void)
     int s1, s2;
     int rc;
     uint64_t val;
+    uint64_t via_opt;
+    size_t vallen;
 
     s1 = mb_socket (AF_MB, MB_PAIR);
     assert (s1 >= 0);
@@ -104,6 +106,22 @@ static void test_connection_stats (void)
     val = mb_get_statistic (s2, MB_STAT_ACCEPTED_CONNECTIONS);
     assert (val == 0);
 
+    /* getsockopt must expose the same counters as mb_get_statistic. */
+    via_opt = 0;
+    vallen = sizeof (via_opt);
+    rc = mb_getsockopt (s1, MB_SOL_SOCKET, MB_STAT_ACCEPTED_CONNECTIONS,
+        &via_opt, &vallen);
+    assert (rc == 0);
+    assert (vallen == sizeof (uint64_t));
+    assert (via_opt == 1);
+
+    via_opt = 0;
+    vallen = sizeof (via_opt);
+    rc = mb_getsockopt (s2, MB_SOL_SOCKET, MB_STAT_ESTABLISHED_CONNECTIONS,
+        &via_opt, &vallen);
+    assert (rc == 0);
+    assert (via_opt == 1);
+
     mb_close (s2);
     usleep (50000);
 
@@ -111,6 +129,13 @@ static void test_connection_stats (void)
     assert (val == 0);
     val = mb_get_statistic (s1, MB_STAT_BROKEN_CONNECTIONS);
     assert (val >= 1);
+
+    via_opt = 0;
+    vallen = sizeof (via_opt);
+    rc = mb_getsockopt (s1, MB_SOL_SOCKET, MB_STAT_BROKEN_CONNECTIONS,
+        &via_opt, &vallen);
+    assert (rc == 0);
+    assert (via_opt == val);
 
     mb_close (s1);
     printf ("  test_connection_stats: PASSED\n");
