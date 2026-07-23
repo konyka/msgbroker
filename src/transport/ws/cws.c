@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
+#include <openssl/sha.h>
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
@@ -91,6 +92,10 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
     char key_b64[32];
     char req[512];
     char resp[4096];
+    uint8_t hash_input[64];
+    uint8_t hash[20];
+    char expected[32];
+    size_t key_len;
     int i;
     size_t pos;
     char *accept_val;
@@ -100,6 +105,11 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
     for (i = 0; i < 16; ++i)
         key_bytes[i] = (uint8_t) (rand () & 0xFF);
     mb_cws_b64_encode (key_bytes, 16, key_b64);
+    key_len = strlen (key_b64);
+    memcpy (hash_input, key_b64, key_len);
+    memcpy (hash_input + key_len, MB_WS_MAGIC, sizeof (MB_WS_MAGIC) - 1);
+    SHA1 (hash_input, key_len + sizeof (MB_WS_MAGIC) - 1, hash);
+    mb_cws_b64_encode (hash, 20, expected);
 
     snprintf (req, sizeof (req),
         "GET / HTTP/1.1\r\n"
@@ -166,6 +176,17 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
     accept_val = strstr (resp, "Sec-WebSocket-Accept:");
     if (!accept_val)
         return -1;
+    accept_val += sizeof ("Sec-WebSocket-Accept:") - 1;
+    while (*accept_val == ' ' || *accept_val == '\t')
+        accept_val++;
+    {
+        size_t elen = strlen (expected);
+        if (strncmp (accept_val, expected, elen) != 0)
+            return -1;
+        if (accept_val[elen] != '\r' && accept_val[elen] != '\n' &&
+            accept_val[elen] != ' ' && accept_val[elen] != '\0')
+            return -1;
+    }
 
     return 0;
 }

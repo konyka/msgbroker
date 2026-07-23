@@ -26,6 +26,7 @@
 #include <time.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/sha.h>
 
 static void mb_cwss_stop (void *p);
 static void mb_cwss_destroy (void *p);
@@ -168,6 +169,11 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
     char key_b64[32];
     char req[512];
     char resp[4096];
+    uint8_t hash_input[64];
+    uint8_t hash[20];
+    char expected[32];
+    size_t key_len;
+    char *accept_val;
     int i;
     int budget = timeout_ms > 0 ? timeout_ms : 5000;
 
@@ -175,6 +181,11 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
     for (i = 0; i < 16; ++i)
         key_bytes[i] = (uint8_t) (rand () & 0xFF);
     mb_cwss_b64_encode (key_bytes, 16, key_b64);
+    key_len = strlen (key_b64);
+    memcpy (hash_input, key_b64, key_len);
+    memcpy (hash_input + key_len, MB_WS_MAGIC, sizeof (MB_WS_MAGIC) - 1);
+    SHA1 (hash_input, key_len + sizeof (MB_WS_MAGIC) - 1, hash);
+    mb_cwss_b64_encode (hash, 20, expected);
 
     snprintf (req, sizeof (req),
         "GET / HTTP/1.1\r\n"
@@ -195,9 +206,21 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
         memcmp (resp, "HTTP/1.0 101", 12) != 0)
         return -1;
 
-    /* Align with cws / RFC 6455 §4.1: require Sec-WebSocket-Accept. */
-    if (!strstr (resp, "Sec-WebSocket-Accept:"))
+    /* RFC 6455 §4.1: Accept must equal base64(SHA1(key + GUID)). */
+    accept_val = strstr (resp, "Sec-WebSocket-Accept:");
+    if (!accept_val)
         return -1;
+    accept_val += sizeof ("Sec-WebSocket-Accept:") - 1;
+    while (*accept_val == ' ' || *accept_val == '\t')
+        accept_val++;
+    {
+        size_t elen = strlen (expected);
+        if (strncmp (accept_val, expected, elen) != 0)
+            return -1;
+        if (accept_val[elen] != '\r' && accept_val[elen] != '\n' &&
+            accept_val[elen] != ' ' && accept_val[elen] != '\0')
+            return -1;
+    }
 
     return 0;
 }

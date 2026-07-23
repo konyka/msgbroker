@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -425,6 +426,95 @@ static void test_ws_reject_unknown_opcode (void)
     printf ("  ws_reject_unknown_opcode: OK\n");
 }
 
+struct fake_ws_arg {
+    int listen_fd;
+};
+
+/* 101 with a wrong Sec-WebSocket-Accept value — cws must reject. */
+static void *fake_ws_bad_accept (void *arg)
+{
+    struct fake_ws_arg *a = (struct fake_ws_arg *) arg;
+    int fd;
+    char req[4096];
+    size_t pos = 0;
+    const char *resp =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: dGVzdA==\r\n"
+        "\r\n";
+
+    fd = accept (a->listen_fd, NULL, NULL);
+    if (fd < 0)
+        return NULL;
+
+    while (pos < sizeof (req) - 1) {
+        ssize_t nr = recv (fd, req + pos, 1, 0);
+        if (nr <= 0)
+            break;
+        pos += (size_t) nr;
+        req[pos] = '\0';
+        if (pos >= 4 && memcmp (req + pos - 4, "\r\n\r\n", 4) == 0)
+            break;
+    }
+
+    (void) send (fd, resp, strlen (resp), 0);
+    usleep (200000);
+    close (fd);
+    return NULL;
+}
+
+static void test_ws_reject_bad_accept (void)
+{
+    int listen_fd;
+    int s2;
+    int rc;
+    int ivl = 0;
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof (sa);
+    pthread_t thr;
+    struct fake_ws_arg arg;
+    uint16_t port;
+    char url[64];
+
+    listen_fd = socket (AF_INET, SOCK_STREAM, 0);
+    assert (listen_fd >= 0);
+    {
+        int on = 1;
+        setsockopt (listen_fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on));
+    }
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    sa.sin_port = 0;
+    rc = bind (listen_fd, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+    rc = getsockname (listen_fd, (struct sockaddr *) &sa, &salen);
+    assert (rc == 0);
+    port = ntohs (sa.sin_port);
+    rc = listen (listen_fd, 1);
+    assert (rc == 0);
+
+    arg.listen_fd = listen_fd;
+    rc = pthread_create (&thr, NULL, fake_ws_bad_accept, &arg);
+    assert (rc == 0);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl,
+        sizeof (ivl));
+    assert (rc == 0);
+
+    snprintf (url, sizeof (url), "ws://127.0.0.1:%u", (unsigned) port);
+    rc = mb_connect (s2, url);
+    assert (rc < 0);
+
+    pthread_join (thr, NULL);
+    close (listen_fd);
+    mb_close (s2);
+    printf ("  ws_reject_bad_accept: OK\n");
+}
+
 int main (void)
 {
     printf ("test_ws:\n");
@@ -435,6 +525,7 @@ int main (void)
     test_ws_reject_unmasked_client_frame ();
     test_ws_reject_rsv_frame ();
     test_ws_reject_unknown_opcode ();
+    test_ws_reject_bad_accept ();
     printf ("test_ws: PASSED\n");
     return 0;
 }

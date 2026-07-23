@@ -138,10 +138,11 @@ struct fake_wss_arg {
     int listen_fd;
     const char *cert;
     const char *key;
+    const char *resp;
 };
 
-/* TLS 101 without Sec-WebSocket-Accept — cwss must reject. */
-static void *fake_wss_no_accept (void *arg)
+/* Fake TLS WS handshake responder (resp chosen by caller). */
+static void *fake_wss_handshake_resp (void *arg)
 {
     struct fake_wss_arg *a = (struct fake_wss_arg *) arg;
     SSL_CTX *ctx;
@@ -149,11 +150,7 @@ static void *fake_wss_no_accept (void *arg)
     int fd;
     char req[4096];
     size_t pos = 0;
-    const char *resp =
-        "HTTP/1.1 101 Switching Protocols\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        "\r\n";
+    const char *resp = a->resp;
 
     ctx = SSL_CTX_new (TLS_server_method ());
     if (!ctx)
@@ -243,7 +240,12 @@ static void test_wss_reject_missing_accept (void)
     arg.listen_fd = listen_fd;
     arg.cert = "/tmp/mb_test_wss_noacc_cert.pem";
     arg.key = "/tmp/mb_test_wss_noacc_key.pem";
-    rc = pthread_create (&thr, NULL, fake_wss_no_accept, &arg);
+    arg.resp =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "\r\n";
+    rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
     assert (rc == 0);
 
     s2 = mb_socket (AF_MB, MB_PAIR);
@@ -269,6 +271,77 @@ static void test_wss_reject_missing_accept (void)
     printf ("  test_wss_reject_missing_accept: PASSED\n");
 }
 
+static void test_wss_reject_bad_accept (void)
+{
+    int listen_fd;
+    int s2;
+    int rc;
+    int ivl = 0;
+    int verify = 0;
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof (sa);
+    pthread_t thr;
+    struct fake_wss_arg arg;
+    uint16_t port;
+
+    system ("openssl req -x509 -newkey rsa:2048 "
+        "-keyout /tmp/mb_test_wss_badacc_key.pem "
+        "-out /tmp/mb_test_wss_badacc_cert.pem "
+        "-days 1 -nodes -subj '/CN=localhost' 2>/dev/null");
+
+    listen_fd = socket (AF_INET, SOCK_STREAM, 0);
+    assert (listen_fd >= 0);
+    {
+        int on = 1;
+        setsockopt (listen_fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on));
+    }
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    sa.sin_port = 0;
+    rc = bind (listen_fd, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+    rc = getsockname (listen_fd, (struct sockaddr *) &sa, &salen);
+    assert (rc == 0);
+    port = ntohs (sa.sin_port);
+    rc = listen (listen_fd, 1);
+    assert (rc == 0);
+
+    arg.listen_fd = listen_fd;
+    arg.cert = "/tmp/mb_test_wss_badacc_cert.pem";
+    arg.key = "/tmp/mb_test_wss_badacc_key.pem";
+    arg.resp =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: dGVzdA==\r\n"
+        "\r\n";
+    rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
+    assert (rc == 0);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_VERIFY, &verify,
+        sizeof (verify));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl,
+        sizeof (ivl));
+    assert (rc == 0);
+
+    {
+        char url[64];
+        snprintf (url, sizeof (url), "wss://127.0.0.1:%u",
+            (unsigned) port);
+        rc = mb_connect (s2, url);
+    }
+    assert (rc < 0);
+
+    pthread_join (thr, NULL);
+    close (listen_fd);
+    mb_close (s2);
+    printf ("  test_wss_reject_bad_accept: PASSED\n");
+}
+
 int main (void)
 {
     printf ("WSS (WebSocket Secure) Tests:\n");
@@ -276,6 +349,7 @@ int main (void)
     test_wss_with_certs ();
     test_wss_bidirectional ();
     test_wss_reject_missing_accept ();
+    test_wss_reject_bad_accept ();
 
     printf ("\nAll WSS tests PASSED\n");
     return 0;
