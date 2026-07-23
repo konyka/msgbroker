@@ -207,6 +207,15 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
     int rc;
 
     if (level == MB_SOL_SOCKET) {
+        /* String option — must not fall through the sizeof(int) gate. */
+        if (option == MB_SOCKET_NAME) {
+            if (!optval || optvallen >= sizeof (self->socket_name))
+                return -EINVAL;
+            memcpy (self->socket_name, optval, optvallen);
+            self->socket_name[optvallen] = '\0';
+            return 0;
+        }
+
         if (optvallen != sizeof (int))
             return -EINVAL;
 
@@ -222,12 +231,6 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         case MB_RCVPRIO:          self->ep_template.rcvprio = *(const int *)optval; return 0;
         case MB_MAXTTL:           self->maxttl = *(const int *)optval; return 0;
         case MB_LINGER:           self->linger = *(const int *)optval; return 0;
-        case MB_SOCKET_NAME:
-            if (optvallen > sizeof (self->socket_name)) return -EINVAL;
-            memcpy (self->socket_name, optval, optvallen);
-            if (optvallen < sizeof (self->socket_name))
-                self->socket_name[optvallen] = '\0';
-            return 0;
         }
     }
 
@@ -309,14 +312,15 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
             val = mb_efd_getfd (&self->rcvfd);
             have_val = 1;
             break;
-        case MB_SOCKET_NAME:
-            if (*optvallen >= sizeof (self->socket_name)) {
-                memcpy (optval, self->socket_name, sizeof (self->socket_name));
-                *optvallen = sizeof (self->socket_name);
-            } else {
-                memcpy (optval, self->socket_name, *optvallen);
-            }
+        case MB_SOCKET_NAME: {
+            size_t n = strlen (self->socket_name) + 1;
+
+            if (!optval || !optvallen || *optvallen < n)
+                return -EINVAL;
+            memcpy (optval, self->socket_name, n);
+            *optvallen = n;
             return 0;
+        }
         default:
             break;
         }
