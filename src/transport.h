@@ -82,6 +82,8 @@ void mb_pipebase_init (struct mb_pipebase *self,
 void mb_pipebase_term (struct mb_pipebase *self);
 int mb_pipebase_start (struct mb_pipebase *self);
 void mb_pipebase_stop (struct mb_pipebase *self);
+/* Undo a successful start when the overall handshake fails (no BROKEN++). */
+void mb_pipebase_cancel (struct mb_pipebase *self);
 void mb_pipebase_received (struct mb_pipebase *self);
 void mb_pipebase_sent (struct mb_pipebase *self);
 void mb_pipebase_getopt (struct mb_pipebase *self, int level, int option,

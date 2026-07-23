@@ -79,7 +79,8 @@ int mb_sinproc_connect (struct mb_sinproc *self, struct mb_sinproc *peer)
     if (rc < 0) {
         self->peer = NULL;
         peer->peer = NULL;
-        mb_pipebase_stop (&self->pipebase);
+        /* Handshake aborted — do not count a broken/established connection. */
+        mb_pipebase_cancel (&self->pipebase);
         return rc;
     }
     return 0;

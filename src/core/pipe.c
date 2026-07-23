@@ -101,6 +101,24 @@ void mb_pipebase_stop (struct mb_pipebase *self)
     self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
 }
 
+void mb_pipebase_cancel (struct mb_pipebase *self)
+{
+    assert (self->state == MB_PIPEBASE_STATE_ACTIVE);
+    /* Reverse start() counters; this pipe never became a live connection. */
+    if (self->sock->statistics.current_connections > 0)
+        self->sock->statistics.current_connections--;
+    if (self->bind) {
+        if (self->sock->statistics.accepted_connections > 0)
+            self->sock->statistics.accepted_connections--;
+    } else if (self->sock->statistics.established_connections > 0) {
+        self->sock->statistics.established_connections--;
+    }
+    mb_sock_pipe_rm (self->sock, (struct mb_pipe *) self);
+    self->state = MB_PIPEBASE_STATE_IDLE;
+    self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
+    self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
+}
+
 void mb_pipebase_received (struct mb_pipebase *self)
 {
     if (self->state != MB_PIPEBASE_STATE_ACTIVE)

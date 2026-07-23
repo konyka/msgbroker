@@ -250,6 +250,12 @@ static void test_inproc_pair_second_connect (void)
     assert (rc < 0);
     assert (mb_errno () == EISCONN);
 
+    /* Failed handshake must not leave phantom ESTABLISHED/BROKEN stats. */
+    assert (mb_get_statistic (c, MB_STAT_CURRENT_CONNECTIONS) == 0);
+    assert (mb_get_statistic (c, MB_STAT_ESTABLISHED_CONNECTIONS) == 0);
+    assert (mb_get_statistic (c, MB_STAT_BROKEN_CONNECTIONS) == 0);
+    assert (mb_get_statistic (a, MB_STAT_CURRENT_CONNECTIONS) == 1);
+
     rc = mb_send (c, "x", 1, MB_DONTWAIT);
     assert (rc == -1);
     assert (mb_errno () == EAGAIN);
