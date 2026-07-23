@@ -38,6 +38,7 @@ void mb_pipebase_init (struct mb_pipebase *self,
     self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
     self->bind = ep->bind ? 1 : 0;
     self->sock = mb_ep_sock (ep);
+    self->ep = ep;
     memcpy (&self->options, &ep->options, sizeof (struct mb_ep_options));
     mb_fsm_event_init (&self->in);
     mb_fsm_event_init (&self->out);
@@ -64,8 +65,14 @@ int mb_pipebase_start (struct mb_pipebase *self)
         self->state = MB_PIPEBASE_STATE_FAILED;
         self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
         self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
+        /* Record sticky endpoint error (e.g. PAIR second peer → EISCONN). */
+        if (self->ep)
+            mb_ep_set_error (self->ep, -rc);
         return rc;
     }
+
+    if (self->ep)
+        mb_ep_clear_error (self->ep);
 
     self->sock->statistics.current_connections++;
     if (self->bind)

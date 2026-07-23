@@ -53,6 +53,7 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
 
 void mb_ep_term (struct mb_ep *self)
 {
+    mb_ep_clear_error (self);
     if (self->ops.destroy)
         self->ops.destroy (self->tran);
     mb_list_item_term (&self->item);
