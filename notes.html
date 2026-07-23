@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-195 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-196 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2479,6 +2479,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>global</b>: <code>mb_msg_from_msghdr</code> returns <code>-EFAULT</code> for null base + nonzero len</li>
 <li>[x] test: <code>sendmsg_null_iov_base</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 196 — Reject NULL iov_base in recvmsg Before Consuming</h2>
+<span class="status done">DONE</span>
+<p><code>mb_recvmsg</code> copied into scatter-gather buffers without checking <code>iov_base</code>, so a NULL base with nonzero length crashed in <code>memcpy</code> after the socket message was already taken. Validate iovecs (and a null <code>msg_iov</code>) before recv and return <code>EFAULT</code>.</p>
+<ul>
+<li>[x] <b>global</b>: <code>mb_recvmsg</code> EFAULT for null iov / null base + nonzero len</li>
+<li>[x] test: <code>recvmsg_null_iov_base</code> (message still receivable)</li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

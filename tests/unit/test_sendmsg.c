@@ -122,6 +122,41 @@ int main (void)
         printf ("  sendmsg_null_iov_base: OK\n");
     }
 
+    {
+        int rs, cs;
+        struct mb_iovec iov;
+        struct mb_msghdr hdr;
+        char buf[8];
+
+        rs = mb_socket (AF_MB, MB_PAIR);
+        assert (rs >= 0);
+        cs = mb_socket (AF_MB, MB_PAIR);
+        assert (cs >= 0);
+        assert (mb_bind (rs, "inproc://recvmsg-null-iov") >= 0);
+        assert (mb_connect (cs, "inproc://recvmsg-null-iov") >= 0);
+        assert (mb_send (cs, "OK", 2, 0) == 2);
+
+        memset (&hdr, 0, sizeof (hdr));
+        iov.iov_base = NULL;
+        iov.iov_len = 1;
+        hdr.msg_iov = &iov;
+        hdr.msg_iovlen = 1;
+
+        rc = mb_recvmsg (rs, &hdr, 0);
+        assert (rc == -1);
+        assert (mb_errno () == EFAULT);
+
+        /* Bad iovec must not consume the pending message. */
+        memset (buf, 0, sizeof (buf));
+        rc = mb_recv (rs, buf, sizeof (buf), 0);
+        assert (rc == 2);
+        assert (memcmp (buf, "OK", 2) == 0);
+
+        mb_close (cs);
+        mb_close (rs);
+        printf ("  recvmsg_null_iov_base: OK\n");
+    }
+
     printf ("test_sendmsg: PASSED\n");
     return 0;
 }

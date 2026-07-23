@@ -777,6 +777,20 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
         return -1;
     }
 
+    /* Validate before recv so a bad iovec cannot drop a delivered message. */
+    if (msghdr->msg_iovlen > 0 && !msghdr->msg_iov) {
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (EFAULT);
+        return -1;
+    }
+    for (i = 0; i < msghdr->msg_iovlen; i++) {
+        if (msghdr->msg_iov[i].iov_len > 0 && !msghdr->msg_iov[i].iov_base) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EFAULT);
+            return -1;
+        }
+    }
+
     timeout = sock->rcvtimeo;
 
     for (;;) {
