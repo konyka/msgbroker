@@ -77,6 +77,7 @@ static void mb_cipc_reconnect_loop (void *arg)
         if (!sipc) {
             close (fd);
             mb_msleep_while (&self->running, current_ivl);
+            current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
             continue;
         }
 
@@ -103,6 +104,7 @@ static void mb_cipc_reconnect_loop (void *arg)
                 if (rc == -EISCONN)
                     break;
                 mb_msleep_while (&self->running, current_ivl);
+                current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
                 continue;
             }
         }

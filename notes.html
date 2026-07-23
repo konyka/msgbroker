@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-191 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-192 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2436,6 +2436,16 @@ li { margin: 5px 0; }
 <li>[x] <b>sleep</b>: <code>mb_reconnect_cap_ivl</code>; next_ivl returns max when current &gt;= max</li>
 <li>[x] <b>ctcp/cipc/ctls/cws/cwss</b>: initialize current_ivl via cap</li>
 <li>[x] test: cap and next_ivl for ivl &gt; max</li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 192 — Advance Backoff After Alloc/Start Failures</h2>
+<span class="status done">DONE</span>
+<p>Reconnect loops advanced <code>current_ivl</code> after connect/handshake failures, but <code>mb_alloc</code> and non-<code>EISCONN</code> <code>*_start</code> failures only slept and retried at the initial interval, defeating exponential backoff under repeated post-connect failures.</p>
+<ul>
+<li>[x] <b>ctcp/cipc/ctls/cws/cwss</b>: call <code>mb_reconnect_next_ivl</code> after alloc and start failure sleeps</li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

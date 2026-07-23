@@ -168,6 +168,7 @@ static void mb_ctls_reconnect_loop (void *arg)
             SSL_free (ssl);
             close (fd);
             mb_msleep_while (&self->running, current_ivl);
+            current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
             continue;
         }
 
@@ -194,6 +195,7 @@ static void mb_ctls_reconnect_loop (void *arg)
                 if (rc == -EISCONN)
                     break;
                 mb_msleep_while (&self->running, current_ivl);
+                current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
                 continue;
             }
         }
