@@ -195,6 +195,10 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
         memcmp (resp, "HTTP/1.0 101", 12) != 0)
         return -1;
 
+    /* Align with cws / RFC 6455 §4.1: require Sec-WebSocket-Accept. */
+    if (!strstr (resp, "Sec-WebSocket-Accept:"))
+        return -1;
+
     return 0;
 }
 
