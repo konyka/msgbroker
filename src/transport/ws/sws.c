@@ -13,6 +13,7 @@
 #include "../../memory/chunk.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -592,17 +593,23 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                         self->inhdr[3]);
                     hdr_used += 2;
                 } else {
-                    /* RFC 6455: 8-byte length. Reject if >32-bit or oversized. */
+                    uint32_t plen;
+
+                    /* RFC 6455: 8-byte length. Reject if >32-bit or >INT_MAX. */
                     if (self->inhdr[2] | self->inhdr[3] |
                         self->inhdr[4] | self->inhdr[5]) {
                         mb_sws_report_error (self);
                         return -EMSGSIZE;
                     }
-                    self->payload_len = (int) (
-                        ((uint32_t) self->inhdr[6] << 24) |
+                    plen = ((uint32_t) self->inhdr[6] << 24) |
                         ((uint32_t) self->inhdr[7] << 16) |
                         ((uint32_t) self->inhdr[8] << 8) |
-                        self->inhdr[9]);
+                        (uint32_t) self->inhdr[9];
+                    if (plen > (uint32_t) INT_MAX) {
+                        mb_sws_report_error (self);
+                        return -EMSGSIZE;
+                    }
+                    self->payload_len = (int) plen;
                     hdr_used += 8;
                 }
 
