@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-185 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-186 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2367,6 +2367,17 @@ li { margin: 5px 0; }
 <li>[x] <b>stls</b>: <code>mb_stls_sync_bufs</code> on send/recv</li>
 <li>[x] <b>sws</b>: <code>mb_sws_sync_bufs</code> on send/recv (plain fd or SSL_get_fd)</li>
 <li>[x] test: <code>test_tls_buf_after_connect</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 186 — mb_device Waits on mb_poll Instead of msleep(1)</h2>
+<span class="status done">DONE</span>
+<p><code>mb_device</code> used <code>mb_msleep(1)</code> for idle and send-backpressure retries, waking ~1000 times/sec with no traffic. Wait on <code>mb_poll</code> for <code>MB_POLLIN</code>/<code>MB_POLLOUT</code> with a short timeout so STOPPING is still rechecked.</p>
+<ul>
+<li>[x] <b>device</b>: poll destination SNDFD on send EAGAIN; poll both sockets when idle</li>
+<li>[x] regression: <code>test_device</code> (forward + close under backpressure)</li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

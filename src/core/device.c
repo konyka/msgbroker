@@ -1,5 +1,4 @@
 #include "../memory/msg.h"
-#include "../pal/sleep.h"
 #include "../utils/err.h"
 
 #include "global.h"
@@ -9,8 +8,12 @@
 
 #include <errno.h>
 
+/* Bounded wait so STOPPING is rechecked while blocked on peer readiness. */
+#define MB_DEVICE_POLL_MS 50
+
 /* Forward one message. Returns 1 on progress, -EAGAIN if idle, else hard error. */
-static int mb_device_forward (struct mb_sock *from, struct mb_sock *to)
+static int mb_device_forward (struct mb_sock *from, struct mb_sock *to,
+    int to_fd)
 {
     struct mb_msg msg;
     int rc;
@@ -41,7 +44,14 @@ static int mb_device_forward (struct mb_sock *from, struct mb_sock *to)
             mb_msg_term (&msg);
             return rc;
         }
-        mb_msleep (1);
+        {
+            struct mb_pollfd pfd;
+
+            pfd.fd = to_fd;
+            pfd.events = MB_POLLOUT;
+            pfd.revents = 0;
+            (void) mb_poll (&pfd, 1, MB_DEVICE_POLL_MS);
+        }
     }
 }
 
@@ -76,22 +86,31 @@ int mb_device (int s1, int s2)
                 MB_SOCK_FLAG_STOPPING))
             break;
 
-        a = mb_device_forward (sock1, sock2);
+        a = mb_device_forward (sock1, sock2, s2);
         if (a < 0 && a != -EAGAIN) {
             mb_err_set_errno (-a);
             ret = -1;
             break;
         }
 
-        b = mb_device_forward (sock2, sock1);
+        b = mb_device_forward (sock2, sock1, s1);
         if (b < 0 && b != -EAGAIN) {
             mb_err_set_errno (-b);
             ret = -1;
             break;
         }
 
-        if (a == -EAGAIN && b == -EAGAIN)
-            mb_msleep (1);
+        if (a == -EAGAIN && b == -EAGAIN) {
+            struct mb_pollfd pfds[2];
+
+            pfds[0].fd = s1;
+            pfds[0].events = MB_POLLIN | MB_POLLOUT;
+            pfds[0].revents = 0;
+            pfds[1].fd = s2;
+            pfds[1].events = MB_POLLIN | MB_POLLOUT;
+            pfds[1].revents = 0;
+            (void) mb_poll (pfds, 2, MB_DEVICE_POLL_MS);
+        }
     }
 
     mb_global_rele_socket (sock1);
