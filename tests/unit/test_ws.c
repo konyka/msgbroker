@@ -349,6 +349,82 @@ static void test_ws_reject_rsv_frame (void)
     printf ("  ws_reject_rsv_frame: OK\n");
 }
 
+/* Reject unknown opcodes (RFC 6455 §5.2). */
+static void test_ws_reject_unknown_opcode (void)
+{
+    int s1;
+    int rc;
+    int rcvtimeo = 2000;
+    int raw;
+    char buf[16];
+    char req[256];
+    char resp[512];
+    uint8_t frame[6];
+    struct sockaddr_in sa;
+    ssize_t n;
+    size_t got = 0;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVTIMEO, &rcvtimeo,
+        sizeof (rcvtimeo));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "ws://127.0.0.1:9106");
+    assert (rc >= 0);
+    usleep (50000);
+
+    raw = socket (AF_INET, SOCK_STREAM, 0);
+    assert (raw >= 0);
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons (9106);
+    assert (inet_pton (AF_INET, "127.0.0.1", &sa.sin_addr) == 1);
+    rc = connect (raw, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+
+    snprintf (req, sizeof (req),
+        "GET / HTTP/1.1\r\n"
+        "Host: 127.0.0.1:9106\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n");
+    n = send (raw, req, strlen (req), 0);
+    assert (n == (ssize_t) strlen (req));
+
+    got = 0;
+    while (got < sizeof (resp) - 1) {
+        n = recv (raw, resp + got, sizeof (resp) - 1 - got, 0);
+        if (n <= 0)
+            break;
+        got += (size_t) n;
+        resp[got] = '\0';
+        if (strstr (resp, "\r\n\r\n"))
+            break;
+    }
+    assert (strstr (resp, "101") != NULL);
+
+    /* Masked empty frame with reserved opcode 0x03. */
+    frame[0] = 0x83; /* FIN + opcode 3 */
+    frame[1] = 0x80; /* MASK + len=0 */
+    frame[2] = 0x11;
+    frame[3] = 0x22;
+    frame[4] = 0x33;
+    frame[5] = 0x44;
+    n = send (raw, frame, sizeof (frame), 0);
+    assert (n == (ssize_t) sizeof (frame));
+
+    rc = mb_recv (s1, buf, sizeof (buf), 0);
+    assert (rc < 0);
+    assert (mb_errno () == EPROTO || mb_errno () == ECONNRESET);
+
+    close (raw);
+    mb_close (s1);
+    printf ("  ws_reject_unknown_opcode: OK\n");
+}
+
 int main (void)
 {
     printf ("test_ws:\n");
@@ -358,6 +434,7 @@ int main (void)
     test_ws_payload_len_int_overflow ();
     test_ws_reject_unmasked_client_frame ();
     test_ws_reject_rsv_frame ();
+    test_ws_reject_unknown_opcode ();
     printf ("test_ws: PASSED\n");
     return 0;
 }

@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-162 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-163 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2107,6 +2107,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sws</b>: require RSV=0 and FIN=1</li>
 <li>[x] test: <code>test_ws_reject_rsv_frame</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 163 — Reject Unknown WebSocket Opcodes</h2>
+<span class="status done">DONE</span>
+<p>After CLOSE/PING/PONG handling, unknown opcodes (CONTINUATION, TEXT, reserved) fell through into the BINARY SP payload path. RFC 6455 §5.2 requires failing the connection; allow only BINARY/CLOSE/PING/PONG.</p>
+<ul>
+<li>[x] <b>sws</b>: opcode allowlist</li>
+<li>[x] test: <code>test_ws_reject_unknown_opcode</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>

@@ -603,6 +603,16 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg)
                     return -EPROTO;
                 }
 
+                /* RFC 6455 §5.2: unknown opcodes must fail the connection.
+                   This stack only uses BINARY for SP payloads. */
+                if (opcode != MB_WS_OPCODE_BINARY &&
+                    opcode != MB_WS_OPCODE_CLOSE &&
+                    opcode != MB_WS_OPCODE_PING &&
+                    opcode != MB_WS_OPCODE_PONG) {
+                    mb_sws_report_error (self);
+                    return -EPROTO;
+                }
+
                 if (payload_len_byte < 126) {
                     self->payload_len = (int) payload_len_byte;
                 } else if (payload_len_byte == 126) {
