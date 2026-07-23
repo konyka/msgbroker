@@ -122,9 +122,16 @@ static int mb_sinproc_send (struct mb_pipebase *base, struct mb_msg *msg)
     if (!self->peer)
         return -EAGAIN;
 
-    /* Match sipc/stls/sws: honor sender MB_RCVMAXSIZE. */
-    if (mb_sock_msg_too_large (base->sock, mb_chunkref_size (&msg->body)))
-        return -EMSGSIZE;
+    {
+        size_t body = mb_chunkref_size (&msg->body);
+
+        /* Match stream send-side check, and peer recv-side (no wire decode). */
+        if (mb_sock_msg_too_large (base->sock, body))
+            return -EMSGSIZE;
+        if (self->peer->pipebase.sock &&
+            mb_sock_msg_too_large (self->peer->pipebase.sock, body))
+            return -EMSGSIZE;
+    }
 
     /* push returns 1 when the queue was empty (wake peer); race-free under
      * msgqueue mutex so we do not lose the rcvfd signal. */
