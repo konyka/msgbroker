@@ -23,6 +23,7 @@ struct mb_ep {
     char addr[MB_SOCKADDR_MAX + 1];
     int protocol;
     int last_errno;
+    int bind; /* 1 if created via bind, 0 if via connect */
 
     void *tran;
     struct mb_ep_ops ops;

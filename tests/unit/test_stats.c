@@ -72,12 +72,57 @@ static void test_messages_sent_received_stat (void)
     mb_close (s1);
 }
 
+static void test_connection_stats (void)
+{
+    int s1, s2;
+    int rc;
+    uint64_t val;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "inproc://stat_conns");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://stat_conns");
+    assert (rc >= 0);
+
+    usleep (50000);
+
+    val = mb_get_statistic (s1, MB_STAT_ACCEPTED_CONNECTIONS);
+    assert (val == 1);
+    val = mb_get_statistic (s1, MB_STAT_CURRENT_CONNECTIONS);
+    assert (val == 1);
+    val = mb_get_statistic (s1, MB_STAT_ESTABLISHED_CONNECTIONS);
+    assert (val == 0);
+
+    val = mb_get_statistic (s2, MB_STAT_ESTABLISHED_CONNECTIONS);
+    assert (val == 1);
+    val = mb_get_statistic (s2, MB_STAT_CURRENT_CONNECTIONS);
+    assert (val == 1);
+    val = mb_get_statistic (s2, MB_STAT_ACCEPTED_CONNECTIONS);
+    assert (val == 0);
+
+    mb_close (s2);
+    usleep (50000);
+
+    val = mb_get_statistic (s1, MB_STAT_CURRENT_CONNECTIONS);
+    assert (val == 0);
+    val = mb_get_statistic (s1, MB_STAT_BROKEN_CONNECTIONS);
+    assert (val >= 1);
+
+    mb_close (s1);
+    printf ("  test_connection_stats: PASSED\n");
+}
+
 int main (void)
 {
     printf ("Statistics tests:\n");
 
     test_messages_sent_received_stat ();
     test_broken_connections_initial ();
+    test_connection_stats ();
 
     printf ("\nAll statistics tests PASSED\n");
     return 0;

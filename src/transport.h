@@ -68,6 +68,7 @@ struct mb_pipebase {
     uint8_t state;
     uint8_t instate;
     uint8_t outstate;
+    uint8_t bind; /* copied from owning endpoint */
     struct mb_sock *sock;
     void *data;
     struct mb_fsm_event in;

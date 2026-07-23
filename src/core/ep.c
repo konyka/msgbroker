@@ -26,6 +26,7 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
     self->sock = sock;
     self->eid = eid;
     self->last_errno = 0;
+    self->bind = bind ? 1 : 0;
     mb_list_item_init (&self->item);
     memcpy (&self->options, &sock->ep_template, sizeof (struct mb_ep_options));
 
@@ -36,7 +37,7 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
     self->tran = NULL;
     memset (&self->ops, 0, sizeof (self->ops));
 
-    if (bind)
+    if (self->bind)
         rc = transport->bind (self);
     else
         rc = transport->connect (self);

@@ -36,6 +36,7 @@ void mb_pipebase_init (struct mb_pipebase *self,
     self->state = MB_PIPEBASE_STATE_IDLE;
     self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
     self->outstate = MB_PIPEBASE_OUTSTATE_DEACTIVATED;
+    self->bind = ep->bind ? 1 : 0;
     self->sock = mb_ep_sock (ep);
     memcpy (&self->options, &ep->options, sizeof (struct mb_ep_options));
     mb_fsm_event_init (&self->in);
@@ -66,6 +67,12 @@ int mb_pipebase_start (struct mb_pipebase *self)
         return rc;
     }
 
+    self->sock->statistics.current_connections++;
+    if (self->bind)
+        self->sock->statistics.accepted_connections++;
+    else
+        self->sock->statistics.established_connections++;
+
     mb_pipebase_received (self);
     mb_pipebase_sent (self);
 
@@ -79,6 +86,8 @@ void mb_pipebase_stop (struct mb_pipebase *self)
 {
     assert (self->state == MB_PIPEBASE_STATE_ACTIVE);
     self->sock->statistics.broken_connections++;
+    if (self->sock->statistics.current_connections > 0)
+        self->sock->statistics.current_connections--;
     mb_sock_pipe_rm (self->sock, (struct mb_pipe *) self);
     self->state = MB_PIPEBASE_STATE_IDLE;
     self->instate = MB_PIPEBASE_INSTATE_DEACTIVATED;
