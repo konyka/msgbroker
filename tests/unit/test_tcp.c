@@ -1048,6 +1048,7 @@ static void test_tcp_bind_addr_in_use (void)
     rc = mb_bind (s2, "tcp://127.0.0.1:18882");
     assert (rc < 0);
     assert (mb_errno () == EADDRINUSE);
+    assert (mb_get_statistic (s2, MB_STAT_BIND_ERRORS) == 1);
 
     mb_close (s2);
     mb_close (s1);

@@ -43,6 +43,10 @@ int mb_ep_init (struct mb_ep *self, int src, struct mb_sock *sock, int eid,
         rc = transport->connect (self);
 
     if (rc < 0) {
+        if (self->bind)
+            mb_ep_stat_increment (self, MB_STAT_BIND_ERRORS, 1);
+        else
+            mb_ep_stat_increment (self, MB_STAT_CONNECT_ERRORS, 1);
         mb_list_item_term (&self->item);
         mb_fsm_term (&self->fsm);
         return rc;

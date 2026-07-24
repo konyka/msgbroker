@@ -62,6 +62,7 @@ static void test_reconnect_disabled (void)
 
     rc = mb_connect (s, "tcp://127.0.0.1:18896");
     assert (rc < 0);
+    assert (mb_get_statistic (s, MB_STAT_CONNECT_ERRORS) == 1);
 
     mb_close (s);
 

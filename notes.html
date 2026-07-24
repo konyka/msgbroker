@@ -32,7 +32,7 @@ li { margin: 5px 0; }
 
 <h1>msgbroker Development Notes</h1>
 <p>High-performance messaging library in pure C (C99-C23) — reimplementation of nanomsg SP protocols with memory pool, thread pool, coroutine, io_uring, and distributed capabilities.</p>
-<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-200 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
+<p><b>Current Status:</b> <b>v0.2.0+ in progress.</b> Phases 0-201 complete. <b>50/50 tests passing.</b> 10 socket types, 6 transports (inproc, IPC, TCP, TLS, WebSocket, WSS), IPv6 dual-stack, DNS resolution, auto-reconnect on ALL connect transports including mid-stream disconnect, PUB/SUB topic filtering, broken_connections stat, Doxygen API docs, io_uring, distributed cluster. All examples use TCP. Clean build with -Wall -Wextra.</p>
 
 <h2>Architecture Overview</h2>
 <div class="arch-diagram">
@@ -2535,6 +2535,17 @@ li { margin: 5px 0; }
 <ul>
 <li>[x] <b>sipc/stls/sws</b>: <code>can_send</code>/<code>has_msg</code> call <code>sync_bufs</code></li>
 <li>[x] test: <code>test_tcp_buf_poll_sync_after_connect</code></li>
+<li>[x] 50/50 tests passing</li>
+</ul>
+</div>
+
+<div class="phase done">
+<h2>Phase 201 — Increment BIND/CONNECT_ERRORS on Endpoint Init Failure</h2>
+<span class="status done">DONE</span>
+<p><code>MB_STAT_BIND_ERRORS</code> / <code>MB_STAT_CONNECT_ERRORS</code> were exposed via getopt but never incremented when <code>transport-&gt;bind/connect</code> failed in <code>mb_ep_init</code>, so failed bind/connect always reported 0.</p>
+<ul>
+<li>[x] <b>ep</b>: increment bind/connect error stats on init failure</li>
+<li>[x] test: assert counters in <code>test_reconnect_disabled</code> / <code>test_tcp_bind_addr_in_use</code></li>
 <li>[x] 50/50 tests passing</li>
 </ul>
 </div>
