@@ -643,6 +643,9 @@ static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghd
     char *ptr;
     struct mb_cmsghdr *cmsg;
 
+    if (msghdr->msg_iovlen > 0 && !msghdr->msg_iov)
+        return -EFAULT;
+
     total = 0;
     for (i = 0; i < msghdr->msg_iovlen; i++) {
         size_t n = msghdr->msg_iov[i].iov_len;

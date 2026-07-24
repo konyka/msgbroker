@@ -123,6 +123,25 @@ int main (void)
     }
 
     {
+        int s;
+        struct mb_msghdr hdr;
+
+        s = mb_socket (AF_MB, MB_PAIR);
+        assert (s >= 0);
+
+        memset (&hdr, 0, sizeof (hdr));
+        hdr.msg_iov = NULL;
+        hdr.msg_iovlen = 1;
+
+        rc = mb_sendmsg (s, &hdr, MB_DONTWAIT);
+        assert (rc == -1);
+        assert (mb_errno () == EFAULT);
+
+        mb_close (s);
+        printf ("  sendmsg_null_iov: OK\n");
+    }
+
+    {
         int rs, cs;
         struct mb_iovec iov;
         struct mb_msghdr hdr;
