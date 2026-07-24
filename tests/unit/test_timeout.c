@@ -3,6 +3,8 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
@@ -125,6 +127,48 @@ static void test_timeout_sendmsg_recvmsg (void)
     printf ("  timeout_sendmsg_recvmsg: OK\n");
 }
 
+struct close_while_send_arg {
+    int s;
+    int send_rc;
+    int send_errno;
+};
+
+static void *close_while_send_worker (void *arg)
+{
+    struct close_while_send_arg *a = (struct close_while_send_arg *) arg;
+
+    a->send_rc = mb_send (a->s, "X", 1, 0);
+    a->send_errno = mb_errno ();
+    return NULL;
+}
+
+/* Blocking send must release its hold when mb_close sets STOPPING. */
+static void test_close_unblocks_send (void)
+{
+    pthread_t thr;
+    struct close_while_send_arg arg;
+    int rc;
+
+    arg.s = mb_socket (AF_MB, MB_PAIR);
+    assert (arg.s >= 0);
+    arg.send_rc = 0;
+    arg.send_errno = 0;
+
+    rc = pthread_create (&thr, NULL, close_while_send_worker, &arg);
+    assert (rc == 0);
+
+    usleep (50000);
+    rc = mb_close (arg.s);
+    assert (rc == 0);
+
+    rc = pthread_join (thr, NULL);
+    assert (rc == 0);
+    assert (arg.send_rc == -1);
+    assert (arg.send_errno == EBADF);
+
+    printf ("  close_unblocks_send: OK\n");
+}
+
 static void test_send_oom_large_body (void)
 {
     int s, rc;
@@ -166,6 +210,7 @@ int main (void)
     test_timeout_recv ();
     test_timeout_send ();
     test_timeout_sendmsg_recvmsg ();
+    test_close_unblocks_send ();
     test_send_oom_large_body ();
     test_version ();
     printf ("test_timeout: PASSED\n");

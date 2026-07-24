@@ -546,6 +546,13 @@ int mb_send (int s, const void *buf, size_t len, int flags)
             mb_err_set_errno (EAGAIN);
             return -1;
         }
+        /* mb_close sets STOPPING then waits for holds — must exit or deadlock. */
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
+            return -1;
+        }
         if (timeout > 0) {
             mb_msleep (1);
             timeout -= 1;
@@ -615,6 +622,13 @@ int mb_recv (int s, void *buf, size_t len, int flags)
         if (flags & MB_DONTWAIT || timeout == 0) {
             mb_global_rele_socket (sock);
             mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        /* mb_close sets STOPPING then waits for holds — must exit or deadlock. */
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
             return -1;
         }
         if (timeout > 0) {
@@ -748,6 +762,13 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
             mb_err_set_errno (EAGAIN);
             return -1;
         }
+        /* mb_close sets STOPPING then waits for holds — must exit or deadlock. */
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
+            return -1;
+        }
         if (timeout > 0) {
             mb_msleep (1);
             timeout -= 1;
@@ -832,6 +853,13 @@ int mb_recvmsg (int s, struct mb_msghdr *msghdr, int flags)
         if (flags & MB_DONTWAIT || timeout == 0) {
             mb_global_rele_socket (sock);
             mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        /* mb_close sets STOPPING then waits for holds — must exit or deadlock. */
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
             return -1;
         }
         if (timeout > 0) {
