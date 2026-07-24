@@ -512,6 +512,12 @@ int mb_send (int s, const void *buf, size_t len, int flags)
         return -1;
     }
 
+    if (len > 0 && !buf) {
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (EFAULT);
+        return -1;
+    }
+
     timeout = sock->sndtimeo;
 
     mb_msg_init_data (&msg, buf, len);
@@ -577,6 +583,12 @@ int mb_recv (int s, void *buf, size_t len, int flags)
     rc = mb_global_hold_socket (&sock, s);
     if (rc < 0) {
         mb_err_set_errno (-rc);
+        return -1;
+    }
+
+    if (len > 0 && !buf) {
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (EFAULT);
         return -1;
     }
 

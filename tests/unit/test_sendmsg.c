@@ -157,6 +157,44 @@ int main (void)
         printf ("  recvmsg_null_iov_base: OK\n");
     }
 
+    {
+        int s;
+
+        s = mb_socket (AF_MB, MB_PAIR);
+        assert (s >= 0);
+        rc = mb_send (s, NULL, 1, MB_DONTWAIT);
+        assert (rc == -1);
+        assert (mb_errno () == EFAULT);
+        mb_close (s);
+        printf ("  send_null_buf: OK\n");
+    }
+
+    {
+        int rs, cs;
+        char buf[8];
+
+        rs = mb_socket (AF_MB, MB_PAIR);
+        assert (rs >= 0);
+        cs = mb_socket (AF_MB, MB_PAIR);
+        assert (cs >= 0);
+        assert (mb_bind (rs, "inproc://recv-null-buf") >= 0);
+        assert (mb_connect (cs, "inproc://recv-null-buf") >= 0);
+        assert (mb_send (cs, "OK", 2, 0) == 2);
+
+        rc = mb_recv (rs, NULL, 1, 0);
+        assert (rc == -1);
+        assert (mb_errno () == EFAULT);
+
+        memset (buf, 0, sizeof (buf));
+        rc = mb_recv (rs, buf, sizeof (buf), 0);
+        assert (rc == 2);
+        assert (memcmp (buf, "OK", 2) == 0);
+
+        mb_close (cs);
+        mb_close (rs);
+        printf ("  recv_null_buf: OK\n");
+    }
+
     printf ("test_sendmsg: PASSED\n");
     return 0;
 }
