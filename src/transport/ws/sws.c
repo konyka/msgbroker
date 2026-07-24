@@ -35,6 +35,7 @@ static int mb_sws_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sws_has_msg (struct mb_pipebase *base);
 static int mb_sws_can_send (struct mb_pipebase *base);
 static int mb_sws_flush_outbuf (struct mb_sws *self);
+static void mb_sws_sync_bufs (struct mb_sws *self);
 
 static const struct mb_pipebase_vfptr mb_sws_vfptr = {
     mb_sws_send,
@@ -54,6 +55,8 @@ static int mb_sws_has_msg (struct mb_pipebase *base)
         return 1;
     if (self->fd < 0 || self->disconnected)
         return 0;
+
+    mb_sws_sync_bufs (self);
 
     /* Match sipc: event-driven POLLIN must still drain pending outbuf. */
     rc = mb_sws_flush_outbuf (self);
@@ -77,6 +80,9 @@ static int mb_sws_can_send (struct mb_pipebase *base)
 
     if (self->fd < 0 || self->disconnected)
         return 0;
+
+    mb_sws_sync_bufs (self);
+
     if (!self->outbuf)
         return 1;
 

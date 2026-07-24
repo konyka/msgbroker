@@ -24,6 +24,7 @@ static int mb_stls_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_stls_has_msg (struct mb_pipebase *base);
 static int mb_stls_can_send (struct mb_pipebase *base);
 static int mb_stls_flush_outbuf (struct mb_stls *self);
+static void mb_stls_sync_bufs (struct mb_stls *self);
 
 static const struct mb_pipebase_vfptr mb_stls_vfptr = {
     mb_stls_send,
@@ -44,6 +45,8 @@ static int mb_stls_has_msg (struct mb_pipebase *base)
         return 1;
     if (!self->ssl || self->disconnected)
         return 0;
+
+    mb_stls_sync_bufs (self);
 
     /* Match sipc: event-driven POLLIN must still drain pending outbuf. */
     rc = mb_stls_flush_outbuf (self);
@@ -71,6 +74,9 @@ static int mb_stls_can_send (struct mb_pipebase *base)
 
     if (!self->ssl || self->disconnected)
         return 0;
+
+    mb_stls_sync_bufs (self);
+
     if (!self->outbuf)
         return 1;
 

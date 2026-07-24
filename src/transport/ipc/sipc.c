@@ -29,6 +29,7 @@ static int mb_sipc_recv (struct mb_pipebase *base, struct mb_msg *msg);
 static int mb_sipc_has_msg (struct mb_pipebase *base);
 static int mb_sipc_can_send (struct mb_pipebase *base);
 static int mb_sipc_flush_outbuf (struct mb_sipc *self);
+static void mb_sipc_sync_bufs (struct mb_sipc *self);
 
 static const struct mb_pipebase_vfptr mb_sipc_vfptr = {
     mb_sipc_send,
@@ -48,6 +49,8 @@ static int mb_sipc_has_msg (struct mb_pipebase *base)
         return 1;
     if (self->fd < 0 || self->disconnected)
         return 0;
+
+    mb_sipc_sync_bufs (self);
 
     /* POLLIN-only waiters never call can_send; flush pending outbuf here so
      * a large send can finish while the peer is still reading. */
@@ -69,6 +72,9 @@ static int mb_sipc_can_send (struct mb_pipebase *base)
 
     if (self->fd < 0 || self->disconnected)
         return 0;
+
+    mb_sipc_sync_bufs (self);
+
     if (!self->outbuf)
         return 1;
 

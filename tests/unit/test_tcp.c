@@ -1114,6 +1114,88 @@ static void test_tcp_buf_after_connect (void)
     printf ("  test_tcp_buf_after_connect: PASSED\n");
 }
 
+/* Enlarging MB_SNDBUF must be visible to mb_poll(POLLOUT) without an intervening send. */
+static void test_tcp_buf_poll_sync_after_connect (void)
+{
+    int s1, s2;
+    int rc;
+    int i;
+    int ok = 0;
+    int small = 4096;
+    int large = 256 * 1024;
+    int linger = 0;
+    char chunk[1024];
+    struct mb_pollfd fds[1];
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_bind (s1, "tcp://127.0.0.1:19981");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "tcp://127.0.0.1:19981");
+    assert (rc >= 0);
+    usleep (50000);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &small, sizeof (small));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &small, sizeof (small));
+    assert (rc == 0);
+
+    memset (chunk, 'P', sizeof (chunk));
+    for (i = 0; i < 64; ++i) {
+        rc = mb_send (s2, chunk, sizeof (chunk), MB_DONTWAIT);
+        if (rc < 0) {
+            assert (mb_errno () == EAGAIN);
+            break;
+        }
+        assert (rc == (int) sizeof (chunk));
+        ok++;
+    }
+    assert (i < 64);
+    assert (ok < 48);
+
+    memset (fds, 0, sizeof (fds));
+    fds[0].fd = s2;
+    fds[0].events = MB_POLLOUT;
+    rc = mb_poll (fds, 1, 0);
+    assert (rc == 0);
+    assert (!(fds[0].revents & MB_POLLOUT));
+
+    /* Raise buffers; poll alone must sync and clear pending outbuf. */
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &large, sizeof (large));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_SNDBUF, &large, sizeof (large));
+    assert (rc == 0);
+
+    {
+        int woke = 0;
+        for (i = 0; i < 40; ++i) {
+            fds[0].revents = 0;
+            rc = mb_poll (fds, 1, 50);
+            if (rc >= 1 && (fds[0].revents & MB_POLLOUT)) {
+                woke = 1;
+                break;
+            }
+        }
+        assert (woke);
+    }
+
+    rc = mb_send (s2, "OK", 2, MB_DONTWAIT);
+    assert (rc == 2);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_LINGER, &linger, sizeof (linger));
+    assert (rc == 0);
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+    printf ("  test_tcp_buf_poll_sync_after_connect: PASSED\n");
+}
+
 int main (void)
 {
     printf ("test_tcp:\n");
@@ -1124,6 +1206,7 @@ int main (void)
     test_net_apply_bufs ();
     test_tcp_sockbufs ();
     test_tcp_buf_after_connect ();
+    test_tcp_buf_poll_sync_after_connect ();
     test_tcp_connect_refused ();
     test_tcp_cross_transport ();
     test_tcp_poll_polllin ();
