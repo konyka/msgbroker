@@ -561,6 +561,61 @@ static void test_inproc_rcvbuf_enlarge_wakes_sndfd (void)
     printf ("  test_inproc_rcvbuf_enlarge_wakes_sndfd: PASSED\n");
 }
 
+/* Shrinking MB_RCVBUF to a full queue must clear peer sticky SNDFD. */
+static void test_inproc_rcvbuf_shrink_clears_sndfd (void)
+{
+    int s1, s2;
+    int rc;
+    int rcvbuf = 4096;
+    int shrunk = 32;
+    int sndfd = -1;
+    size_t sz;
+    char buf[32];
+    struct pollfd pfd;
+
+    s1 = mb_socket (AF_MB, MB_PAIR);
+    assert (s1 >= 0);
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &rcvbuf, sizeof (rcvbuf));
+    assert (rc == 0);
+
+    rc = mb_bind (s1, "inproc://test_rcvbuf_shrink");
+    assert (rc >= 0);
+    rc = mb_connect (s2, "inproc://test_rcvbuf_shrink");
+    assert (rc >= 0);
+
+    sz = sizeof (sndfd);
+    rc = mb_getsockopt (s2, MB_SOL_SOCKET, MB_SNDFD, &sndfd, &sz);
+    assert (rc == 0);
+    assert (sndfd >= 0);
+
+    memset (buf, 'S', sizeof (buf));
+    rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc == (int) sizeof (buf));
+
+    /* Queue holds 32 bytes — shrink RCVBUF to 32 so it is full. */
+    rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RCVBUF, &shrunk, sizeof (shrunk));
+    assert (rc == 0);
+
+    pfd.fd = sndfd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    rc = poll (&pfd, 1, 0);
+    assert (rc == 0);
+
+    rc = mb_send (s2, buf, sizeof (buf), MB_DONTWAIT);
+    assert (rc < 0);
+    assert (mb_errno () == EAGAIN);
+
+    rc = mb_close (s1);
+    assert (rc == 0);
+    rc = mb_close (s2);
+    assert (rc == 0);
+    printf ("  test_inproc_rcvbuf_shrink_clears_sndfd: PASSED\n");
+}
+
 /*  MB_RCVBUF/MB_SNDBUF <= 0 must be rejected (would disable inproc caps). */
 static void test_inproc_buf_rejects_nonpositive (void)
 {
@@ -701,6 +756,7 @@ int main (void)
     test_inproc_rcvbuf_backpressure ();
     test_inproc_rcvbuf_after_connect ();
     test_inproc_rcvbuf_enlarge_wakes_sndfd ();
+    test_inproc_rcvbuf_shrink_clears_sndfd ();
     test_inproc_buf_rejects_nonpositive ();
     test_inproc_rcvmaxsize ();
     printf ("test_inproc: ALL PASSED\n");

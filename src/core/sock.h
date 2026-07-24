@@ -103,5 +103,7 @@ int mb_sock_hold (struct mb_sock *self);
 void mb_sock_rele (struct mb_sock *self);
 /* 1 if size exceeds MB_RCVMAXSIZE (-1 = unlimited). */
 int mb_sock_msg_too_large (struct mb_sock *self, size_t size);
+/* Align MB_SNDFD with current sockbase OUT (used when peer RCVBUF changes). */
+void mb_sock_sync_sndfd (struct mb_sock *self);
 
 #endif

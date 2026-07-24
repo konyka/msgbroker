@@ -43,10 +43,9 @@ static void mb_sinproc_on_rcvbuf (struct mb_pipebase *base)
     struct mb_sinproc *self = mb_cont (base, struct mb_sinproc, pipebase);
 
     mb_sinproc_sync_maxmem (self);
-    /* Peer may have blocked on our old maxmem — wake its POLLOUT. */
-    if (self->peer && self->peer->pipebase.sock &&
-        mb_msgqueue_can_push (&self->msgqueue))
-        mb_efd_signal (&self->peer->pipebase.sock->sndfd);
+    /* Enlarge may unblock peer POLLOUT; shrink must clear sticky SNDFD. */
+    if (self->peer && self->peer->pipebase.sock)
+        mb_sock_sync_sndfd (self->peer->pipebase.sock);
 }
 
 int mb_sinproc_create (struct mb_sinproc *self, struct mb_ep *ep)

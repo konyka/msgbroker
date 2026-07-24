@@ -20,7 +20,7 @@
  * topology changes and send/recv FSM transitions. events() IN must reflect
  * real queued messages (mb_pipe_has_msg / mb_fq_can_recv), not mere pipe
  * existence — otherwise sync would sticky-POLLIN after drain. */
-static void mb_sock_sync_sndfd (struct mb_sock *self)
+void mb_sock_sync_sndfd (struct mb_sock *self)
 {
     int ev;
 
