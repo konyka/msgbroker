@@ -214,6 +214,38 @@ int main (void)
         printf ("  recv_null_buf: OK\n");
     }
 
+    {
+        int s;
+        int maxsz = 1024;
+        char buf[2048];
+        struct mb_iovec iov[2];
+        struct mb_msghdr hdr;
+
+        s = mb_socket (AF_MB, MB_PAIR);
+        assert (s >= 0);
+        assert (mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVMAXSIZE, &maxsz,
+                sizeof (maxsz)) == 0);
+
+        memset (buf, 'Z', sizeof (buf));
+        rc = mb_send (s, buf, sizeof (buf), MB_DONTWAIT);
+        assert (rc == -1);
+        assert (mb_errno () == EMSGSIZE);
+
+        memset (&hdr, 0, sizeof (hdr));
+        iov[0].iov_base = buf;
+        iov[0].iov_len = 1024;
+        iov[1].iov_base = buf;
+        iov[1].iov_len = 1;
+        hdr.msg_iov = iov;
+        hdr.msg_iovlen = 2;
+        rc = mb_sendmsg (s, &hdr, MB_DONTWAIT);
+        assert (rc == -1);
+        assert (mb_errno () == EMSGSIZE);
+
+        mb_close (s);
+        printf ("  send_rcvmaxsize_before_alloc: OK\n");
+    }
+
     printf ("test_sendmsg: PASSED\n");
     return 0;
 }

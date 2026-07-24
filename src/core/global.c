@@ -518,6 +518,12 @@ int mb_send (int s, const void *buf, size_t len, int flags)
         return -1;
     }
 
+    if (mb_sock_msg_too_large (sock, len)) {
+        mb_global_rele_socket (sock);
+        mb_err_set_errno (EMSGSIZE);
+        return -1;
+    }
+
     timeout = sock->sndtimeo;
 
     mb_msg_init_data (&msg, buf, len);
@@ -636,7 +642,7 @@ int mb_recv (int s, void *buf, size_t len, int flags)
 }
 
 static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghdr,
-    size_t *total_out)
+    size_t *total_out, struct mb_sock *sock)
 {
     size_t total;
     int i;
@@ -655,6 +661,9 @@ static int mb_msg_from_msghdr (struct mb_msg *msg, const struct mb_msghdr *msghd
             return -EFAULT;
         total += n;
     }
+
+    if (mb_sock_msg_too_large (sock, total))
+        return -EMSGSIZE;
 
     mb_msg_init (msg, total);
     ptr = (char *) mb_chunkref_data (&msg->body);
@@ -720,7 +729,7 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
 
     timeout = sock->sndtimeo;
 
-    rc = mb_msg_from_msghdr (&msg, msghdr, &total);
+    rc = mb_msg_from_msghdr (&msg, msghdr, &total, sock);
     if (rc < 0) {
         mb_global_rele_socket (sock);
         mb_err_set_errno (-rc);
@@ -750,7 +759,7 @@ int mb_sendmsg (int s, const struct mb_msghdr *msghdr, int flags)
         } else {
             mb_msleep (1);
         }
-        rc = mb_msg_from_msghdr (&msg, msghdr, &total);
+        rc = mb_msg_from_msghdr (&msg, msghdr, &total, sock);
         if (rc < 0) {
             mb_global_rele_socket (sock);
             mb_err_set_errno (-rc);

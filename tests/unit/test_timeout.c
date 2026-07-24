@@ -128,12 +128,18 @@ static void test_timeout_sendmsg_recvmsg (void)
 static void test_send_oom_large_body (void)
 {
     int s, rc;
+    int unlimited = -1;
     char b = 'x';
-    /* Absurd length: malloc fails on common platforms; must return ENOMEM. */
+    /* Absurd length: malloc fails on common platforms; must return ENOMEM.
+     * Disable MB_RCVMAXSIZE so the API size gate does not return EMSGSIZE. */
     size_t huge = (size_t) -1 / 4;
 
     s = mb_socket (AF_MB, MB_PAIR);
     assert (s >= 0);
+
+    rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RCVMAXSIZE, &unlimited,
+        sizeof (unlimited));
+    assert (rc == 0);
 
     rc = mb_send (s, &b, huge, MB_DONTWAIT);
     assert (rc == -1);
