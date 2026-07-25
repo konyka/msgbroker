@@ -258,8 +258,13 @@ int mb_btls_create (struct mb_ep *ep)
             }
         }
         if (sock->tls_ca_path[0]) {
-            SSL_CTX_load_verify_locations (self->ctx,
-                sock->tls_ca_path, NULL);
+            if (SSL_CTX_load_verify_locations (self->ctx,
+                    sock->tls_ca_path, NULL) <= 0) {
+                SSL_CTX_free (self->ctx);
+                close (fd);
+                mb_free (self);
+                return -EINVAL;
+            }
         }
     }
 

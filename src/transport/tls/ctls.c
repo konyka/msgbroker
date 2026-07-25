@@ -77,8 +77,12 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
         SSL_CTX_set_verify (ctx, SSL_VERIFY_NONE, NULL);
     } else {
         SSL_CTX_set_verify (ctx, SSL_VERIFY_PEER, NULL);
-        if (sock->tls_ca_path[0])
-            SSL_CTX_load_verify_locations (ctx, sock->tls_ca_path, NULL);
+        if (sock->tls_ca_path[0]) {
+            if (SSL_CTX_load_verify_locations (ctx, sock->tls_ca_path, NULL) <= 0) {
+                SSL_CTX_free (ctx);
+                return NULL;
+            }
+        }
     }
 
     ssl = SSL_new (ctx);

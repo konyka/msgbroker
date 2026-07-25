@@ -33,9 +33,17 @@ void mb_random_seed (void)
 #else
     int fd = open ("/dev/urandom", O_RDONLY);
     if (fd >= 0) {
-        read (fd, mb_random_state, sizeof (mb_random_state));
+        size_t got = 0;
+        while (got < sizeof (mb_random_state)) {
+            ssize_t n = read (fd, (char *) mb_random_state + got,
+                sizeof (mb_random_state) - got);
+            if (n <= 0)
+                break;
+            got += (size_t) n;
+        }
         close (fd);
-        return;
+        if (got == sizeof (mb_random_state))
+            return;
     }
 #endif
     uint64_t seed = (uint64_t) time (NULL) ^ ((uint64_t) clock () << 32);
