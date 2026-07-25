@@ -85,6 +85,8 @@ int mb_queue_item_isinqueue (struct mb_queue_item *self)
 void mb_mpsc_queue_init (struct mb_mpsc_queue *self)
 {
     self->stub = (struct mb_mpsc_queue_item *) malloc (sizeof (*self->stub));
+    if (!self->stub)
+        abort ();
     self->stub->next = NULL;
     self->head = self->stub;
     self->producer_tail = self->stub;

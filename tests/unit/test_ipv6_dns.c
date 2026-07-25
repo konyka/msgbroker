@@ -19,12 +19,12 @@ static void test_tcp_ipv6_loopback (void)
     s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    rc = mb_bind (s1, "tcp://[::1]:18890");
+    rc = mb_bind (s1, "tcp://[::1]:19010");
     assert (rc >= 0);
 
     usleep (50000);
 
-    rc = mb_connect (s2, "tcp://[::1]:18890");
+    rc = mb_connect (s2, "tcp://[::1]:19010");
     assert (rc >= 0);
 
     usleep (100000);
@@ -55,12 +55,12 @@ static void test_tcp_ipv6_wildcard (void)
     s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    rc = mb_bind (s1, "tcp://[::]:18891");
+    rc = mb_bind (s1, "tcp://[::]:19011");
     assert (rc >= 0);
 
     usleep (50000);
 
-    rc = mb_connect (s2, "tcp://127.0.0.1:18891");
+    rc = mb_connect (s2, "tcp://127.0.0.1:19011");
     assert (rc >= 0);
 
     usleep (100000);
@@ -91,12 +91,12 @@ static void test_tcp_localhost_dns (void)
     s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    rc = mb_bind (s1, "tcp://127.0.0.1:18892");
+    rc = mb_bind (s1, "tcp://127.0.0.1:19012");
     assert (rc >= 0);
 
     usleep (50000);
 
-    rc = mb_connect (s2, "tcp://localhost:18892");
+    rc = mb_connect (s2, "tcp://localhost:19012");
     assert (rc >= 0);
 
     usleep (100000);
@@ -126,12 +126,12 @@ static void test_tcp_ipv4_wildcard (void)
     s2 = mb_socket (AF_MB, MB_PAIR);
     assert (s2 >= 0);
 
-    rc = mb_bind (s1, "tcp://*:18893");
+    rc = mb_bind (s1, "tcp://*:19013");
     assert (rc >= 0);
 
     usleep (50000);
 
-    rc = mb_connect (s2, "tcp://127.0.0.1:18893");
+    rc = mb_connect (s2, "tcp://127.0.0.1:19013");
     assert (rc >= 0);
 
     usleep (100000);
@@ -166,7 +166,7 @@ static void test_ipv4only_option (void)
 
     rc = mb_setsockopt (s1, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
     assert (rc == 0);
-    rc = mb_bind (s1, "tcp://[::1]:18894");
+    rc = mb_bind (s1, "tcp://[::1]:19014");
     assert (rc < 0);
 
     s2 = mb_socket (AF_MB, MB_PAIR);
@@ -174,7 +174,7 @@ static void test_ipv4only_option (void)
     v = 1;
     rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_IPV4ONLY, &v, sizeof (v));
     assert (rc == 0);
-    rc = mb_bind (s2, "tcp://127.0.0.1:18895");
+    rc = mb_bind (s2, "tcp://127.0.0.1:19015");
     assert (rc >= 0);
 
     mb_close (s1);

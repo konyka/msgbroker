@@ -39,7 +39,6 @@ static void test_messages_sent_received_stat (void)
     int s1, s2;
     int rc;
     uint64_t val;
-    size_t vallen;
     char buf[64];
 
     s1 = mb_socket (AF_MB, MB_PAIR);

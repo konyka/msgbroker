@@ -24,12 +24,12 @@ static void test_reconnect_auto (void)
 
     mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
 
-    rc = mb_connect (s2, "tcp://127.0.0.1:18895");
+    rc = mb_connect (s2, "tcp://127.0.0.1:19020");
     assert (rc >= 0);
 
     usleep (200000);
 
-    rc = mb_bind (s1, "tcp://127.0.0.1:18895");
+    rc = mb_bind (s1, "tcp://127.0.0.1:19020");
     assert (rc >= 0);
 
     usleep (300000);
@@ -60,7 +60,7 @@ static void test_reconnect_disabled (void)
 
     mb_setsockopt (s, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
 
-    rc = mb_connect (s, "tcp://127.0.0.1:18896");
+    rc = mb_connect (s, "tcp://127.0.0.1:19021");
     assert (rc < 0);
     assert (mb_get_statistic (s, MB_STAT_CONNECT_ERRORS) == 1);
 
@@ -146,21 +146,21 @@ static void test_reconnect_eisconn_stops (void)
     rc = mb_setsockopt (s, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl, sizeof (ivl));
     assert (rc == 0);
 
-    rc = mb_bind (s, "tcp://127.0.0.1:18890");
+    rc = mb_bind (s, "tcp://127.0.0.1:19022");
     assert (rc >= 0);
 
     /* No listener yet — create returns with reconnect thread running. */
-    rc = mb_connect (s, "tcp://127.0.0.1:18891");
+    rc = mb_connect (s, "tcp://127.0.0.1:19023");
     assert (rc >= 0);
 
-    rc = mb_connect (peer, "tcp://127.0.0.1:18890");
+    rc = mb_connect (peer, "tcp://127.0.0.1:19022");
     assert (rc >= 0);
     usleep (100000);
 
     cur = mb_get_statistic (s, MB_STAT_CURRENT_CONNECTIONS);
     assert (cur == 1);
 
-    rc = mb_bind (target, "tcp://127.0.0.1:18891");
+    rc = mb_bind (target, "tcp://127.0.0.1:19023");
     assert (rc >= 0);
 
     /* Wait until outbound reconnect hits EISCONN (sticky ep error). */

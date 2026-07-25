@@ -42,12 +42,12 @@ static void test_wss_with_certs (void)
             &verify, sizeof (verify));
     }
 
-    rc = mb_bind (s1, "wss://127.0.0.1:18897");
+    rc = mb_bind (s1, "wss://127.0.0.1:19030");
     assert (rc >= 0);
 
     usleep (200000);
 
-    rc = mb_connect (s2, "wss://127.0.0.1:18897");
+    rc = mb_connect (s2, "wss://127.0.0.1:19030");
     assert (rc >= 0);
 
     usleep (200000);
@@ -104,12 +104,12 @@ static void test_wss_bidirectional (void)
             &verify, sizeof (verify));
     }
 
-    rc = mb_bind (s1, "wss://127.0.0.1:18898");
+    rc = mb_bind (s1, "wss://127.0.0.1:19031");
     assert (rc >= 0);
 
     usleep (100000);
 
-    rc = mb_connect (s2, "wss://127.0.0.1:18898");
+    rc = mb_connect (s2, "wss://127.0.0.1:19031");
     assert (rc >= 0);
 
     usleep (200000);

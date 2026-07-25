@@ -179,7 +179,8 @@ Set `MB_RECONNECT_IVL` to `0` to disable auto-reconnect (returns error on connec
 | `mb_version_major()` | Major version |
 | `mb_version_minor()` | Minor version |
 | `mb_version_patch()` | Patch version |
-| `mb_version_string()` | Version string ("0.2.0") || `mb_term()` | Shutdown library |
+| `mb_version_string()` | Version string ("0.2.0") |
+| `mb_term()` | Shutdown library |
 
 ## Architecture
 
@@ -207,7 +208,7 @@ Set `MB_RECONNECT_IVL` to `0` to disable auto-reconnect (returns error on connec
 
 ## Test Suite
 
-46+ tests covering all layers:
+50 tests covering all layers:
 
 - PAL: atomic, mutex, condvar, thread, efd, clock, semaphore
 - Data structures: list, queue, hash, trie, wire, chunk, msg, slab, arena, pool
@@ -217,7 +218,7 @@ Set `MB_RECONNECT_IVL` to `0` to disable auto-reconnect (returns error on connec
 - Network: IPv6, DNS hostname resolution, dual-stack
 - Protocol: pipeline (PUSH/PULL), reqrep (REQ/REP), protocols (PUB/SUB, BUS, survey)
 - Distributed: ring, gossip, protocol serialization
-- API: strerror, sendmsg/recvmsg, cmsg, coro_io, timeout/version, poll, TLS cert, reconnect
+- API: strerror, sendmsg/recvmsg, cmsg, coro_io, timeout/version, poll, TLS cert, reconnect, reconnect_disc, pubsub_filter, stats
 
 ## Benchmarks
 

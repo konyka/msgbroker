@@ -11,7 +11,7 @@ struct mb_threadpool_thread {
     struct mb_threadpool *pool;
     struct mb_queue local_queue;
     struct mb_mutex local_lock;
-    int running;
+    mb_atomic_int running;
 };
 
 static void mb_threadpool_worker_fn (void *arg)
@@ -19,7 +19,7 @@ static void mb_threadpool_worker_fn (void *arg)
     struct mb_threadpool_thread *t = (struct mb_threadpool_thread *) arg;
     struct mb_threadpool *pool = t->pool;
 
-    while (t->running) {
+    while (mb_atomic_load (&t->running)) {
         mb_mutex_lock (&t->local_lock);
         struct mb_queue_item *qi = mb_queue_pop (&t->local_queue);
         mb_mutex_unlock (&t->local_lock);
@@ -62,12 +62,30 @@ int mb_threadpool_init (struct mb_threadpool *self, int nworkers)
 
     for (i = 0; i < nworkers; i++) {
         threads[i].pool = self;
-        threads[i].running = 1;
+        mb_atomic_store (&threads[i].running, 1);
         mb_queue_init (&threads[i].local_queue);
         mb_mutex_init (&threads[i].local_lock);
         mb_thread_init (&threads[i].thread);
-        mb_thread_start (&threads[i].thread,
+        int rc = mb_thread_start (&threads[i].thread,
             mb_threadpool_worker_fn, &threads[i]);
+        if (rc != 0) {
+            mb_atomic_store (&threads[i].running, 0);
+            int j;
+            for (j = 0; j < i; j++) {
+                mb_atomic_store (&threads[j].running, 0);
+                mb_thread_join (&threads[j].thread);
+                mb_thread_term (&threads[j].thread);
+                mb_mutex_term (&threads[j].local_lock);
+                mb_queue_term (&threads[j].local_queue);
+            }
+            mb_thread_term (&threads[i].thread);
+            mb_mutex_term (&threads[i].local_lock);
+            mb_queue_term (&threads[i].local_queue);
+            mb_condvar_term (&self->wait_cond);
+            mb_mutex_term (&self->global_lock);
+            mb_free (threads);
+            return rc;
+        }
     }
 
     self->workers = (struct mb_worker *) threads;
@@ -80,7 +98,7 @@ void mb_threadpool_term (struct mb_threadpool *self)
     struct mb_threadpool_thread *threads =
         (struct mb_threadpool_thread *) self->workers;
     for (i = 0; i < self->nworkers; i++) {
-        threads[i].running = 0;
+        mb_atomic_store (&threads[i].running, 0);
         mb_thread_join (&threads[i].thread);
         mb_thread_term (&threads[i].thread);
         mb_mutex_term (&threads[i].local_lock);

@@ -5,12 +5,17 @@
 #include <stdint.h>
 
 struct mb_timerset_hndl;
+struct mb_timer;
+struct mb_timerset;
 
 struct mb_timerset_hndl {
     int timeout;
     uint64_t expiry;
+    struct mb_timerset *set;
     struct mb_timerset_hndl *prev;
     struct mb_timerset_hndl *next;
+    void (*fn) (struct mb_timerset_hndl *);
+    struct mb_timer *timer;
 };
 
 struct mb_timerset {

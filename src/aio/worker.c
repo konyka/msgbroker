@@ -15,13 +15,13 @@ int mb_worker_init (struct mb_worker *self)
     mb_efd_init (&self->efd);
     mb_queue_init (&self->tasks);
     mb_mutex_init (&self->tasks_sync);
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     return 0;
 }
 
 void mb_worker_term (struct mb_worker *self)
 {
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     mb_efd_signal (&self->efd);
     mb_thread_join (&self->thread);
     mb_mutex_term (&self->tasks_sync);

@@ -1,12 +1,7 @@
 #include "timerset.h"
 #include "../pal/clock.h"
 
-#include <stddef.h>
-#include <stdlib.h>
-
-struct mb_timerset {
-    struct mb_timerset_hndl *head;
-};
+#include <stdint.h>
 
 void mb_timerset_init (struct mb_timerset *self)
 {
@@ -30,35 +25,61 @@ int mb_timerset_timeout (struct mb_timerset *self)
 static void mb_timerset_insert_sorted (struct mb_timerset *self,
     struct mb_timerset_hndl *hndl)
 {
-    struct mb_timerset_hndl **pp = &self->head;
-    while (*pp && (*pp)->expiry <= hndl->expiry)
-        pp = &(*pp)->next;
-    hndl->next = *pp;
-    hndl->prev = pp == &self->head ? NULL :
-        (struct mb_timerset_hndl *) ((char *) pp - offsetof (struct mb_timerset_hndl, next));
-    if (*pp)
-        (*pp)->prev = hndl;
-    *pp = hndl;
+    struct mb_timerset_hndl *it = self->head;
+    struct mb_timerset_hndl *prev = NULL;
+
+    hndl->set = self;
+    hndl->prev = NULL;
+    hndl->next = NULL;
+
+    while (it && it->expiry <= hndl->expiry) {
+        prev = it;
+        it = it->next;
+    }
+
+    hndl->prev = prev;
+    hndl->next = it;
+    if (prev)
+        prev->next = hndl;
+    else
+        self->head = hndl;
+    if (it)
+        it->prev = hndl;
 }
 
 void mb_timerset_insert (struct mb_timerset *self,
     struct mb_timerset_hndl *hndl)
 {
+    if (hndl->set)
+        mb_timerset_cancel (hndl);
     hndl->expiry = mb_clock_ms () + (uint64_t) hndl->timeout;
     mb_timerset_insert_sorted (self, hndl);
 }
 
 void mb_timerset_cancel (struct mb_timerset_hndl *hndl)
 {
+    if (!hndl->set)
+        return;
+
     if (hndl->prev)
         hndl->prev->next = hndl->next;
+    else
+        hndl->set->head = hndl->next;
     if (hndl->next)
         hndl->next->prev = hndl->prev;
+    hndl->set = NULL;
     hndl->prev = NULL;
     hndl->next = NULL;
 }
 
 void mb_timerset_tick (struct mb_timerset *self)
 {
-    (void) self;
+    uint64_t now = mb_clock_ms ();
+
+    while (self->head && self->head->expiry <= now) {
+        struct mb_timerset_hndl *hndl = self->head;
+        mb_timerset_cancel (hndl);
+        if (hndl->fn)
+            hndl->fn (hndl);
+    }
 }

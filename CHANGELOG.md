@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **test_hash SEGFAULT under -DNDEBUG** — `assert(mb_hash_init(...))` was compiled out under Release builds (`-DNDEBUG`), leaving the hash struct uninitialized. Tests are now compiled with `-UNDEBUG` to ensure assertions are always active.
+- **Parallel test port conflicts** — `test_ipv6_dns`, `test_reconnect`, and `test_wss` shared TCP ports with `test_tcp` (18890-18898), causing timeouts under `ctest -j4`. Each test file now uses a unique non-overlapping port range (19010+, 19020+, 19030+).
+- **MPSC queue unchecked malloc** — `mb_mpsc_queue_init` did not check the `malloc` return for the stub node, which would dereference NULL on allocation failure. Now aborts explicitly.
+- **Threadpool thread-start error ignored** — `mb_threadpool_init` did not check the return value of `mb_thread_start`. If thread creation failed, subsequent `mb_thread_join` would hang or crash. Now rolls back initialized workers and returns the error.
+- **Atomic field data races** — `mb_worker.running` and `mb_threadpool_thread.running` were accessed with direct assignment instead of atomic operations. Now consistently uses `mb_atomic_store`/`mb_atomic_load`.
+- **Timer subsystem non-functional** — `mb_timerset_tick` was an empty stub, `mb_timerset_cancel` did not update the list head, `mb_timer_init` never allocated a handle, and `mb_timer_start` never inserted into the timerset. Timers now fire correctly: the handle is allocated in `mb_timer_init`, inserted on FSM start, canceled on stop, and expired timers are processed in `mb_timerset_tick` which calls back to raise `MB_TIMER_DONE`.
+
+### Tests
+
+- **50 tests** now passing in both Debug and Release builds with parallel `ctest -j4` (previously 3 tests failed under Release parallel execution).
+- Tests are now compiled with `-UNDEBUG` to ensure `assert()` calls are always active, even in Release builds.
+- Network tests assigned unique non-overlapping port ranges to prevent parallel execution conflicts.
+
+### Known Issues
+
+- **io_uring poll modify blocks** — `mb_evloop` modify path uses `io_uring_wait_cqe` (blocking) to synchronize poll removal before re-adding, which can stall the event loop under high fd churn. Recommend migrating to non-cancel-based rearm or epoll fallback for modify-heavy workloads.
+- **Distributed subsystem concurrency** — `gossip.c` node-list reads and `cluster.c` teardown have potential reentrancy and deadlock paths under concurrent callback execution. Needs mutex scope audit before production cluster use.
+
 ## [0.2.0] - 2026-05-26
 
 ### Added

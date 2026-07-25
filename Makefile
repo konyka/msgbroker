@@ -5,7 +5,7 @@ AR      ?= ar
 RANLIB  ?= ranlib
 
 MB_MAJOR = 0
-MB_MINOR = 1
+MB_MINOR = 2
 MB_PATCH = 0
 
 SOURCES  = $(shell find src -name '*.c')
