@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "../../utils/list.h"
 #include "../../pal/mutex.h"
+#include "../../pal/atomic.h"
 
 #include <stddef.h>
 #include <openssl/ssl.h>
@@ -25,7 +26,7 @@ struct mb_stls {
     int outpos;
     int outlen;
     struct mb_mutex outlock;
-    int disconnected;
+    mb_atomic_int disconnected;
     void (*on_error) (void *arg);
     void *on_error_arg;
 };

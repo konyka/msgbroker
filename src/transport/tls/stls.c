@@ -43,7 +43,7 @@ static int mb_stls_has_msg (struct mb_pipebase *base)
 
     if (self->instate == MB_STLS_INSTATE_HASMSG)
         return 1;
-    if (!self->ssl || self->disconnected)
+    if (!self->ssl || mb_atomic_load (&self->disconnected))
         return 0;
 
     mb_stls_sync_bufs (self);
@@ -73,7 +73,7 @@ static int mb_stls_can_send (struct mb_pipebase *base)
     int rc;
     int has_outbuf;
 
-    if (!self->ssl || self->disconnected)
+    if (!self->ssl || mb_atomic_load (&self->disconnected))
         return 0;
 
     mb_stls_sync_bufs (self);
@@ -151,7 +151,7 @@ static void mb_stls_sync_bufs (struct mb_stls *self)
     struct mb_sock *sock;
     int fd;
 
-    if (!self->ssl || self->disconnected)
+    if (!self->ssl || mb_atomic_load (&self->disconnected))
         return;
     sock = self->pipebase.sock;
     if (!sock)
@@ -178,7 +178,7 @@ int mb_stls_create (struct mb_stls *self, struct mb_ep *ep, SSL *ssl)
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
-    self->disconnected = 0;
+    mb_atomic_store (&self->disconnected, 0);
     self->on_error = NULL;
     self->on_error_arg = NULL;
     mb_msg_init (&self->inmsg, 0);
@@ -196,9 +196,9 @@ static void mb_stls_report_error (struct mb_stls *self)
     void (*cb) (void *);
     void *arg;
 
-    if (self->disconnected)
+    if (mb_atomic_load (&self->disconnected))
         return;
-    self->disconnected = 1;
+    mb_atomic_store (&self->disconnected, 1);
     cb = self->on_error;
     arg = self->on_error_arg;
     self->on_error = NULL;

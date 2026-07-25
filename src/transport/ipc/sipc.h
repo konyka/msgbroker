@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "../../utils/list.h"
 #include "../../pal/mutex.h"
+#include "../../pal/atomic.h"
 
 #include <stddef.h>
 
@@ -26,7 +27,7 @@ struct mb_sipc {
     /* Guards outbuf/outpos/outlen: the app send thread and the reconnect/
      * accept thread (via mb_sock_pipe_add -> can_send) flush concurrently. */
     struct mb_mutex outlock;
-    int disconnected;
+    mb_atomic_int disconnected;
     void (*on_error) (void *arg);
     void *on_error_arg;
 };

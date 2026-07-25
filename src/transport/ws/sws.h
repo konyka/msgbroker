@@ -5,6 +5,7 @@
 #include "ws.h"
 #include "../../utils/list.h"
 #include "../../pal/mutex.h"
+#include "../../pal/atomic.h"
 
 #include <stddef.h>
 
@@ -32,7 +33,7 @@ struct mb_sws {
     int pong_len;
     uint8_t pong_buf[125];
     struct ssl_st *ssl;
-    int disconnected;
+    mb_atomic_int disconnected;
     void (*on_error) (void *arg);
     void *on_error_arg;
 };
