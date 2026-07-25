@@ -57,6 +57,7 @@ static void mb_bus_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
             mb_list_erase (&bus->pipes, &data->item);
         mb_list_item_term (&data->item);
         mb_free (data);
+        mb_pipe_setdata (pipe, NULL);
     }
 }
 

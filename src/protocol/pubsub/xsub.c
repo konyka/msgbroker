@@ -37,7 +37,7 @@ static void mb_xsub_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
 {
     struct mb_xsub *xp = (struct mb_xsub *) self;
     struct mb_fq_data *data = (struct mb_fq_data *) mb_pipe_getdata (pipe);
-    if (data) { mb_fq_rm (&xp->fq, data); mb_free (data); }
+    if (data) { mb_fq_rm (&xp->fq, data); mb_free (data); mb_pipe_setdata (pipe, NULL); }
 }
 
 static void mb_xsub_in (struct mb_sockbase *self, struct mb_pipe *pipe)

@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Threadpool thread-start error ignored** — `mb_threadpool_init` did not check the return value of `mb_thread_start`. If thread creation failed, subsequent `mb_thread_join` would hang or crash. Now rolls back initialized workers and returns the error.
 - **Atomic field data races** — `mb_worker.running` and `mb_threadpool_thread.running` were accessed with direct assignment instead of atomic operations. Now consistently uses `mb_atomic_store`/`mb_atomic_load`.
 - **Timer subsystem non-functional** — `mb_timerset_tick` was an empty stub, `mb_timerset_cancel` did not update the list head, `mb_timer_init` never allocated a handle, and `mb_timer_start` never inserted into the timerset. Timers now fire correctly: the handle is allocated in `mb_timer_init`, inserted on FSM start, canceled on stop, and expired timers are processed in `mb_timerset_tick` which calls back to raise `MB_TIMER_DONE`.
+- **Gossip concurrency defects** — `mb_gossip_find_node`, `mb_gossip_node_count`, and `mb_gossip_set_callback` accessed shared state without the mutex. `mb_gossip_add_node` had a TOCTOU race (find-then-insert without holding the lock). `mb_gossip_tick` invoked the change callback while holding the mutex, risking deadlock if the callback re-entered gossip APIs. All functions now lock the mutex; the tick callback is invoked after unlock.
+- **Discovery fd leak on thread-start failure** — `mb_discovery_start` did not close the socket if `mb_thread_start` failed. Now closes the socket and returns the error.
+- **Discovery untrusted packet data** — `recvfrom` packet `addr` field was not guaranteed null-terminated. Now explicitly null-terminated before passing to the callback.
+- **WebSocket SHA-1 uninitialized digest** — `mb_sha1` in `bws.c` returned early on allocation failure without writing to the output buffer, leaving the handshake hash uninitialized. Now returns `-1` on failure; the caller checks the return value.
+- **Protocol pipe data double-free risk** — 14 protocol `_rm` handlers freed per-pipe data but did not clear the pipe's data pointer. A double-removal would dereference a dangling pointer. All handlers now call `mb_pipe_setdata(pipe, NULL)` after freeing.
 
 ### Tests
 
@@ -24,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Known Issues
 
 - **io_uring poll modify blocks** — `mb_evloop` modify path uses `io_uring_wait_cqe` (blocking) to synchronize poll removal before re-adding, which can stall the event loop under high fd churn. Recommend migrating to non-cancel-based rearm or epoll fallback for modify-heavy workloads.
-- **Distributed subsystem concurrency** — `gossip.c` node-list reads and `cluster.c` teardown have potential reentrancy and deadlock paths under concurrent callback execution. Needs mutex scope audit before production cluster use.
+- **TLS hostname verification** — `ctls.c` does not authenticate the server hostname against the TLS certificate. Do not use `tls://` with untrusted endpoints without additional verification.
 
 ## [0.2.0] - 2026-05-26
 

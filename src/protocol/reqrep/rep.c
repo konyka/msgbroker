@@ -80,6 +80,8 @@ static void mb_rep_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
             break;
         }
     }
+
+    mb_pipe_setdata (pipe, NULL);
 }
 
 static void mb_rep_in (struct mb_sockbase *self, struct mb_pipe *pipe)

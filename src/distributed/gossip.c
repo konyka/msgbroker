@@ -83,10 +83,6 @@ void mb_gossip_stop (struct mb_gossip *self)
 int mb_gossip_add_node (struct mb_gossip *self, uint32_t node_id,
     const char *addr)
 {
-    struct mb_gossip_node *existing = mb_gossip_find_node (self, node_id);
-    if (existing)
-        return -EEXIST;
-
     struct mb_gossip_node *node = (struct mb_gossip_node *)
         mb_alloc (sizeof (struct mb_gossip_node));
     if (!node)
@@ -95,6 +91,20 @@ int mb_gossip_add_node (struct mb_gossip *self, uint32_t node_id,
     mb_gossip_node_init (node, node_id, addr);
 
     mb_mutex_lock (&self->sync);
+
+    struct mb_list_item *it;
+    for (it = mb_list_begin (&self->nodes);
+         it != mb_list_end (&self->nodes);
+         it = mb_list_next (&self->nodes, it)) {
+        struct mb_gossip_node *existing = mb_cont (it,
+            struct mb_gossip_node, item);
+        if (existing->node_id == node_id) {
+            mb_mutex_unlock (&self->sync);
+            mb_free (node);
+            return -EEXIST;
+        }
+    }
+
     mb_list_insert (&self->nodes, &node->item, mb_list_end (&self->nodes));
     mb_mutex_unlock (&self->sync);
 
@@ -127,33 +137,44 @@ struct mb_gossip_node *mb_gossip_find_node (struct mb_gossip *self,
     uint32_t node_id)
 {
     struct mb_list_item *it;
+    struct mb_gossip_node *result = NULL;
+
+    mb_mutex_lock (&self->sync);
     for (it = mb_list_begin (&self->nodes);
          it != mb_list_end (&self->nodes);
          it = mb_list_next (&self->nodes, it)) {
         struct mb_gossip_node *node = mb_cont (it, struct mb_gossip_node, item);
-        if (node->node_id == node_id)
-            return node;
+        if (node->node_id == node_id) {
+            result = node;
+            break;
+        }
     }
-    return NULL;
+    mb_mutex_unlock (&self->sync);
+    return result;
 }
 
 int mb_gossip_node_count (struct mb_gossip *self)
 {
     int count = 0;
     struct mb_list_item *it;
+
+    mb_mutex_lock (&self->sync);
     for (it = mb_list_begin (&self->nodes);
          it != mb_list_end (&self->nodes);
          it = mb_list_next (&self->nodes, it)) {
         count++;
     }
+    mb_mutex_unlock (&self->sync);
     return count;
 }
 
 void mb_gossip_set_callback (struct mb_gossip *self,
     mb_gossip_on_change cb, void *ctx)
 {
+    mb_mutex_lock (&self->sync);
     self->on_change = cb;
     self->on_change_ctx = ctx;
+    mb_mutex_unlock (&self->sync);
 }
 
 void mb_gossip_tick (struct mb_gossip *self)
@@ -163,6 +184,12 @@ void mb_gossip_tick (struct mb_gossip *self)
         self->config.suspect_timeout_ms : MB_GOSSIP_DEFAULT_INTERVAL_MS * 3;
     int dead_ms = self->config.dead_timeout_ms > 0 ?
         self->config.dead_timeout_ms : MB_GOSSIP_DEFAULT_INTERVAL_MS * 10;
+
+    struct {
+        struct mb_gossip_node *node;
+        enum mb_gossip_node_state old_state;
+    } changes[MB_GOSSIP_MAX_NODES];
+    int nchanges = 0;
 
     mb_mutex_lock (&self->sync);
 
@@ -186,10 +213,22 @@ void mb_gossip_tick (struct mb_gossip *self)
             node->state = MB_GOSSIP_NODE_DEAD;
         }
 
-        if (old_state != node->state && self->on_change) {
-            self->on_change (self->on_change_ctx, node, old_state);
+        if (old_state != node->state && nchanges < MB_GOSSIP_MAX_NODES) {
+            changes[nchanges].node = node;
+            changes[nchanges].old_state = old_state;
+            nchanges++;
         }
     }
 
+    mb_gossip_on_change cb = self->on_change;
+    void *cb_ctx = self->on_change_ctx;
+
     mb_mutex_unlock (&self->sync);
+
+    if (cb) {
+        int i;
+        for (i = 0; i < nchanges; i++) {
+            cb (cb_ctx, changes[i].node, changes[i].old_state);
+        }
+    }
 }

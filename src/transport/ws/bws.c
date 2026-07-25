@@ -69,7 +69,7 @@ static void mb_bws_on_session_error (void *p)
 static const char mb_ws_accept_key[] =
     "258EAFA5-E914-47DA-95CA-5AB5F8A5B5E3";
 
-static void mb_sha1 (const uint8_t *data, size_t len, uint8_t out[20])
+static int mb_sha1 (const uint8_t *data, size_t len, uint8_t out[20])
 {
     uint32_t h0 = 0x67452301, h1 = 0xEFCDAB89, h2 = 0x98BADCFE;
     uint32_t h3 = 0x10325476, h4 = 0xC3D2E1F0;
@@ -78,7 +78,7 @@ static void mb_sha1 (const uint8_t *data, size_t len, uint8_t out[20])
     uint64_t bitlen = (uint64_t) len * 8;
     size_t padded_len = ((len + 8) / 64 + 1) * 64;
     uint8_t *msg = (uint8_t *) mb_alloc (padded_len);
-    if (!msg) return;
+    if (!msg) return -1;
 
     memcpy (msg, data, len);
     msg[len] = 0x80;
@@ -135,6 +135,7 @@ static void mb_sha1 (const uint8_t *data, size_t len, uint8_t out[20])
         o[16] = (uint8_t)(h4>>24); o[17] = (uint8_t)(h4>>16);
         o[18] = (uint8_t)(h4>>8); o[19] = (uint8_t)h4;
     }
+    return 0;
 }
 
 static size_t mb_b64_encode (const uint8_t *src, size_t len, char *dst)
@@ -281,7 +282,8 @@ static int mb_bws_do_handshake (int fd, volatile int *running, int timeout_ms)
     memcpy (hash_input, key, key_len);
     memcpy (hash_input + key_len, mb_ws_accept_key,
         sizeof (mb_ws_accept_key) - 1);
-    mb_sha1 (hash_input, key_len + sizeof (mb_ws_accept_key) - 1, hash);
+    if (mb_sha1 (hash_input, key_len + sizeof (mb_ws_accept_key) - 1, hash) != 0)
+        return -1;
     mb_b64_encode (hash, 20, hash_b64);
 
     snprintf (resp, sizeof (resp),

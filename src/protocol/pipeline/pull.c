@@ -45,6 +45,7 @@ static void mb_pull_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
     if (data) {
         mb_fq_rm (&pull->fq, data);
         mb_free (data);
+        mb_pipe_setdata (pipe, NULL);
     }
 }
 

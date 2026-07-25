@@ -98,6 +98,7 @@ static void mb_discovery_thread_routine (void *arg)
                 pkt.magic == MB_DISCOVERY_PKT_MAGIC &&
                 pkt.version == MB_DISCOVERY_PKT_VERSION &&
                 pkt.node_id != self->config.local_node_id) {
+                pkt.addr[MB_DISCOVERY_MAX_ADDR - 1] = '\0';
                 if (self->on_node)
                     self->on_node (self->on_node_ctx, pkt.node_id, pkt.addr);
             }
@@ -122,7 +123,14 @@ int mb_discovery_start (struct mb_discovery *self)
         &reuse, sizeof (reuse));
 
     mb_atomic_store (&self->running, 1);
-    return mb_thread_start (&self->thread, mb_discovery_thread_routine, self);
+    int rc = mb_thread_start (&self->thread, mb_discovery_thread_routine, self);
+    if (rc != 0) {
+        mb_atomic_store (&self->running, 0);
+        close (self->sock_fd);
+        self->sock_fd = -1;
+        return rc;
+    }
+    return 0;
 }
 
 void mb_discovery_stop (struct mb_discovery *self)

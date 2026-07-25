@@ -45,6 +45,7 @@ static void mb_push_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
     if (data) {
         mb_lb_rm (&push->lb, data);
         mb_free (data);
+        mb_pipe_setdata (pipe, NULL);
     }
 }
 

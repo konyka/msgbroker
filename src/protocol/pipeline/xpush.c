@@ -37,7 +37,7 @@ static void mb_xpush_rm (struct mb_sockbase *self, struct mb_pipe *pipe)
 {
     struct mb_xpush *xp = (struct mb_xpush *) self;
     struct mb_lb_data *data = (struct mb_lb_data *) mb_pipe_getdata (pipe);
-    if (data) { mb_lb_rm (&xp->lb, data); mb_free (data); }
+    if (data) { mb_lb_rm (&xp->lb, data); mb_free (data); mb_pipe_setdata (pipe, NULL); }
 }
 
 static void mb_xpush_in (struct mb_sockbase *self, struct mb_pipe *pipe)
