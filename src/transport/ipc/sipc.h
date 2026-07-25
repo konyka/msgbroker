@@ -3,6 +3,7 @@
 
 #include "../../transport.h"
 #include "../../utils/list.h"
+#include "../../pal/mutex.h"
 
 #include <stddef.h>
 
@@ -22,6 +23,9 @@ struct mb_sipc {
     int instate;
     int outpos;
     int outlen;
+    /* Guards outbuf/outpos/outlen: the app send thread and the reconnect/
+     * accept thread (via mb_sock_pipe_add -> can_send) flush concurrently. */
+    struct mb_mutex outlock;
     int disconnected;
     void (*on_error) (void *arg);
     void *on_error_arg;

@@ -4,6 +4,7 @@
 #include "../../transport.h"
 #include "ws.h"
 #include "../../utils/list.h"
+#include "../../pal/mutex.h"
 
 #include <stddef.h>
 
@@ -26,6 +27,7 @@ struct mb_sws {
     uint8_t *outbuf;
     size_t outlen;
     size_t outpos;
+    struct mb_mutex outlock;
     int pending_pong;
     int pong_len;
     uint8_t pong_buf[125];

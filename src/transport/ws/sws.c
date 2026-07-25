@@ -77,13 +77,17 @@ static int mb_sws_can_send (struct mb_pipebase *base)
     struct mb_sws *self = mb_cont (base, struct mb_sws, pipebase);
     struct pollfd pfd;
     int rc;
+    int has_outbuf;
 
     if (self->fd < 0 || self->disconnected)
         return 0;
 
     mb_sws_sync_bufs (self);
 
-    if (!self->outbuf)
+    mb_mutex_lock (&self->outlock);
+    has_outbuf = self->outbuf != NULL;
+    mb_mutex_unlock (&self->outlock);
+    if (!has_outbuf)
         return 1;
 
     pfd.fd = self->fd;
@@ -94,7 +98,10 @@ static int mb_sws_can_send (struct mb_pipebase *base)
     rc = mb_sws_flush_outbuf (self);
     if (rc < 0 && rc != -EAGAIN)
         return 0;
-    return self->outbuf == NULL;
+    mb_mutex_lock (&self->outlock);
+    has_outbuf = self->outbuf != NULL;
+    mb_mutex_unlock (&self->outlock);
+    return !has_outbuf;
 }
 
 static void mb_ws_mask (uint8_t *data, size_t len, const uint8_t *key)
@@ -292,6 +299,7 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     self->instate = MB_SWS_INSTATE_HDR;
     self->payload_len = 0;
     self->payload_offset = 0;
+    mb_mutex_init (&self->outlock);
     self->outbuf = NULL;
     self->outlen = 0;
     self->outpos = 0;
@@ -331,10 +339,12 @@ void mb_sws_term (struct mb_sws *self)
     mb_msg_term (&self->inmsg);
     mb_list_item_term (&self->item);
     mb_pipebase_term (&self->pipebase);
+    mb_mutex_lock (&self->outlock);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
     }
+    mb_mutex_unlock (&self->outlock);
     if (self->ssl) {
         int fd = SSL_get_fd (self->ssl);
         SSL_shutdown (self->ssl);
@@ -347,6 +357,7 @@ void mb_sws_term (struct mb_sws *self)
         close (self->fd);
         self->fd = -1;
     }
+    mb_mutex_term (&self->outlock);
 }
 
 int mb_sws_start (struct mb_sws *self)
@@ -357,17 +368,26 @@ int mb_sws_start (struct mb_sws *self)
 static int mb_sws_flush_outbuf (struct mb_sws *self)
 {
     int rc;
+    int report = 0;
 
-    if (!self->outbuf)
+    mb_mutex_lock (&self->outlock);
+    if (!self->outbuf) {
+        mb_mutex_unlock (&self->outlock);
         return 0;
-    if (self->fd < 0 && !self->ssl)
+    }
+    if (self->fd < 0 && !self->ssl) {
+        mb_mutex_unlock (&self->outlock);
         return -ECONNRESET;
+    }
 
     while (self->outpos < self->outlen) {
         rc = mb_sws_send_raw (self, self->outbuf + self->outpos,
             self->outlen - self->outpos);
         if (rc < 0) {
             if (rc != -EAGAIN)
+                report = 1;
+            mb_mutex_unlock (&self->outlock);
+            if (report)
                 mb_sws_report_error (self);
             return rc;
         }
@@ -377,6 +397,7 @@ static int mb_sws_flush_outbuf (struct mb_sws *self)
     self->outbuf = NULL;
     self->outlen = 0;
     self->outpos = 0;
+    mb_mutex_unlock (&self->outlock);
     return 0;
 }
 
@@ -421,12 +442,14 @@ void mb_sws_stop (struct mb_sws *self)
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
     mb_sws_linger_flush (self);
+    mb_mutex_lock (&self->outlock);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
         self->outlen = 0;
         self->outpos = 0;
     }
+    mb_mutex_unlock (&self->outlock);
     if (self->ssl) {
         int fd = SSL_get_fd (self->ssl);
         SSL_shutdown (self->ssl);
@@ -509,12 +532,15 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
                 memcpy (payload + 4, body_data, body_len);
         }
 
+        mb_mutex_lock (&self->outlock);
         rc = mb_sws_build_frame (self, MB_WS_OPCODE_BINARY, payload,
             payload_len, &self->outbuf, &self->outlen);
+        if (rc == 0)
+            self->outpos = 0;
+        mb_mutex_unlock (&self->outlock);
         mb_free (payload);
         if (rc < 0)
             return rc;
-        self->outpos = 0;
 
         /* Accepted: EAGAIN means pending wire flush, not "msg not taken". */
         mb_msg_term (msg);

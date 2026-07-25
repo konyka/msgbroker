@@ -69,13 +69,17 @@ static int mb_sipc_can_send (struct mb_pipebase *base)
     struct mb_sipc *self = mb_cont (base, struct mb_sipc, pipebase);
     struct pollfd pfd;
     int rc;
+    int has_outbuf;
 
     if (self->fd < 0 || self->disconnected)
         return 0;
 
     mb_sipc_sync_bufs (self);
 
-    if (!self->outbuf)
+    mb_mutex_lock (&self->outlock);
+    has_outbuf = self->outbuf != NULL;
+    mb_mutex_unlock (&self->outlock);
+    if (!has_outbuf)
         return 1;
 
     pfd.fd = self->fd;
@@ -86,7 +90,10 @@ static int mb_sipc_can_send (struct mb_pipebase *base)
     rc = mb_sipc_flush_outbuf (self);
     if (rc < 0 && rc != -EAGAIN)
         return 0;
-    return self->outbuf == NULL;
+    mb_mutex_lock (&self->outlock);
+    has_outbuf = self->outbuf != NULL;
+    mb_mutex_unlock (&self->outlock);
+    return !has_outbuf;
 }
 
 static int mb_sipc_send_fd (int fd, const void *buf, size_t len)
@@ -156,6 +163,7 @@ int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
     self->inpos = 0;
     self->inlen = 0;
     self->instate = MB_SIPC_INSTATE_HDR;
+    mb_mutex_init (&self->outlock);
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
@@ -171,14 +179,17 @@ void mb_sipc_term (struct mb_sipc *self)
     mb_msg_term (&self->inmsg);
     mb_list_item_term (&self->item);
     mb_pipebase_term (&self->pipebase);
+    mb_mutex_lock (&self->outlock);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
     }
+    mb_mutex_unlock (&self->outlock);
     if (self->fd >= 0) {
         close (self->fd);
         self->fd = -1;
     }
+    mb_mutex_term (&self->outlock);
 }
 
 int mb_sipc_start (struct mb_sipc *self)
@@ -211,17 +222,28 @@ static void mb_sipc_report_error (struct mb_sipc *self)
 static int mb_sipc_flush_outbuf (struct mb_sipc *self)
 {
     int rc;
+    int report = 0;
 
-    if (!self->outbuf)
+    mb_mutex_lock (&self->outlock);
+    if (!self->outbuf) {
+        mb_mutex_unlock (&self->outlock);
         return 0;
-    if (self->fd < 0)
+    }
+    if (self->fd < 0) {
+        mb_mutex_unlock (&self->outlock);
         return -ECONNRESET;
+    }
 
     while (self->outpos < self->outlen) {
         rc = mb_sipc_send_fd (self->fd, self->outbuf + self->outpos,
             (size_t) (self->outlen - self->outpos));
         if (rc < 0) {
             if (rc != -EAGAIN)
+                report = 1;
+            mb_mutex_unlock (&self->outlock);
+            /* Defer the callback: it re-enters cipc_on_disconnect which
+               takes cipc->lock and calls mb_sipc_stop on this sipc. */
+            if (report)
                 mb_sipc_report_error (self);
             return rc;
         }
@@ -231,6 +253,7 @@ static int mb_sipc_flush_outbuf (struct mb_sipc *self)
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
+    mb_mutex_unlock (&self->outlock);
     return 0;
 }
 
@@ -270,12 +293,14 @@ void mb_sipc_stop (struct mb_sipc *self)
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
     mb_sipc_linger_flush (self);
+    mb_mutex_lock (&self->outlock);
     if (self->outbuf) {
         mb_free (self->outbuf);
         self->outbuf = NULL;
         self->outpos = 0;
         self->outlen = 0;
     }
+    mb_mutex_unlock (&self->outlock);
     if (self->fd >= 0) {
         close (self->fd);
         self->fd = -1;
@@ -307,15 +332,19 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
         if (body_size > (size_t) INT_MAX - MB_SIPC_HDR_SIZE)
             return -EMSGSIZE;
 
+        mb_mutex_lock (&self->outlock);
         self->outlen = (int) (MB_SIPC_HDR_SIZE + body_size);
         self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
-        if (!self->outbuf)
+        if (!self->outbuf) {
+            mb_mutex_unlock (&self->outlock);
             return -ENOMEM;
+        }
         mb_wire_put_uint32 (self->outbuf, (uint32_t) body_size);
         if (body_size > 0)
             memcpy (self->outbuf + MB_SIPC_HDR_SIZE,
                 mb_chunkref_data (&msg->body), body_size);
         self->outpos = 0;
+        mb_mutex_unlock (&self->outlock);
 
         /* Accepted: EAGAIN means pending wire flush, not "msg not taken". */
         mb_msg_term (msg);
