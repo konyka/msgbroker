@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **CI sanitizer jobs** — GitHub Actions now runs the full test suite under AddressSanitizer (+LeakSanitizer) and UndefinedBehaviorSanitizer on Linux. These previously-uncovered failure modes (allocation-size-too-big aborts, leaks, UB) are now caught on every push and pull request.
+- **CI C-standard matrix** — A dedicated `standards` job now builds and tests the library with `MB_C_STANDARD` set to 99, 11, 17, and 23, validating the README's C99-through-C23 compatibility claim.
+
+### Changed
+
+- **Deterministic OOM test behaviour under ASan** — CTest now sets `ASAN_OPTIONS=allocator_may_return_null=1` for every test. AddressSanitizer's default (`allocator_may_return_null=0`) aborts on absurdly large allocations instead of returning `NULL` the way production `malloc` does; the OOM-path tests (`test_hash`, `test_msg`, `test_arena`, `test_timeout::test_send_oom_large_body`) probe the library's `NULL`-return handling and were therefore aborting under ASan. The option makes ASan match production semantics. It is ignored on non-ASan builds, so plain Debug/Release runs are unaffected.
+
 ### Fixed
 
+- **test_slab leak under LeakSanitizer** — `test_slab` allocated 16 slab objects, returned only 2 to the freelist, re-borrowed 2, then called `mb_slab_term` without returning the 16 outstanding objects (`mb_slab_term` only frees objects currently in the freelist). All outstanding objects are now returned before teardown, eliminating the 1024-byte leak reported by LeakSanitizer.
 - **test_hash SEGFAULT under -DNDEBUG** — `assert(mb_hash_init(...))` was compiled out under Release builds (`-DNDEBUG`), leaving the hash struct uninitialized. Tests are now compiled with `-UNDEBUG` to ensure assertions are always active.
 - **Parallel test port conflicts** — `test_ipv6_dns`, `test_reconnect`, and `test_wss` shared TCP ports with `test_tcp` (18890-18898), causing timeouts under `ctest -j4`. Each test file now uses a unique non-overlapping port range (19010+, 19020+, 19030+).
 - **MPSC queue unchecked malloc** — `mb_mpsc_queue_init` did not check the `malloc` return for the stub node, which would dereference NULL on allocation failure. Now aborts explicitly.

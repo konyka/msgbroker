@@ -68,6 +68,13 @@ foreach(TEST_SRC ${MB_TEST_SOURCES})
         target_link_libraries(${TEST_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     endif()
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    # ASan aborts on absurdly large allocations instead of returning NULL the
+    # way production malloc does; the OOM tests probe the NULL-return path, so
+    # make ASan match production. UBSan is told to abort on any UB. Both env
+    # vars are ignored when the relevant runtime is not linked, so this is a
+    # no-op on plain Release/Debug builds.
+    set_tests_properties(${TEST_NAME} PROPERTIES
+        ENVIRONMENT "ASAN_OPTIONS=allocator_may_return_null=1:detect_leaks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
 endforeach()
 
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure)

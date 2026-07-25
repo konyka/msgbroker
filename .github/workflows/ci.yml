@@ -61,3 +61,60 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest --build-config ${{ matrix.build_type }} --output-on-failure --timeout 60
+
+  standards:
+    name: c-standard-${{ matrix.c_standard }}-gcc
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        c_standard: [99, 11, 17, 23]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install liburing
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+      - name: Configure
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc
+          -DMB_C_STANDARD=${{ matrix.c_standard }}
+          -DMB_BUILD_EXAMPLES=OFF
+          -DMB_BUILD_PERF=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure --timeout 60
+
+  sanitizer:
+    name: sanitizer-${{ matrix.sanitizer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: address
+            cflags: -fsanitize=address -fno-omit-frame-pointer -g
+            ldflags: -fsanitize=address
+          - sanitizer: undefined
+            cflags: -fsanitize=undefined -fno-omit-frame-pointer -g
+            ldflags: -fsanitize=undefined
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install liburing
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+      - name: Configure
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=gcc
+          -DCMAKE_C_FLAGS="${{ matrix.cflags }}"
+          -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.ldflags }}"
+          -DMB_BUILD_EXAMPLES=OFF
+          -DMB_BUILD_PERF=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure --timeout 120

@@ -28,6 +28,15 @@ int main (void)
     void *r2 = mb_slab_alloc (&slab);
     assert (r2 != NULL);
 
+    /* Return every outstanding object; skip 5/10 — now owned by r2/r1. */
+    for (i = 0; i < 16; i++) {
+        if (i == 5 || i == 10)
+            continue;
+        mb_slab_free (&slab, objs[i]);
+    }
+    mb_slab_free (&slab, r1);
+    mb_slab_free (&slab, r2);
+
     mb_slab_term (&slab);
 
     /* Huge freelist: alloc fails → empty slab, no crash. */
