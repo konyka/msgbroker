@@ -85,7 +85,7 @@ static void mb_bipc_accept_loop (void *arg)
 {
     struct mb_bipc *self = (struct mb_bipc *) arg;
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         struct pollfd pfd;
         int rc;
 
@@ -99,7 +99,7 @@ static void mb_bipc_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
-        if (!self->running || self->listen_fd < 0)
+        if (!mb_atomic_load (&self->running) || self->listen_fd < 0)
             continue;
 
         if (pfd.revents & POLLIN) {
@@ -190,13 +190,13 @@ int mb_bipc_create (struct mb_ep *ep)
     mb_list_init (&self->sipcs);
     mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
 
     mb_ep_tran_setup (ep, &mb_bipc_ops, self);
 
     mb_thread_init (&self->accept_thread);
     if (mb_thread_start (&self->accept_thread, mb_bipc_accept_loop, self) != 0) {
-        self->running = 0;
+        mb_atomic_store (&self->running, 0);
         close (self->listen_fd);
         self->listen_fd = -1;
         unlink (self->path);
@@ -214,7 +214,7 @@ static void mb_bipc_stop (void *p)
 {
     struct mb_bipc *self = (struct mb_bipc *) p;
 
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
         self->listen_fd = -1;
@@ -241,7 +241,7 @@ static void mb_bipc_destroy (void *p)
 {
     struct mb_bipc *self = (struct mb_bipc *) p;
 
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
 
     while (!mb_list_empty (&self->sipcs)) {
         struct mb_list_item *it = mb_list_begin (&self->sipcs);

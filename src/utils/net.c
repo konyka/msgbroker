@@ -1,5 +1,6 @@
 #include "net.h"
 #include "err.h"
+#include "../pal/atomic.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -70,14 +71,14 @@ int mb_net_connect (const char *host, uint16_t port, int *family,
 
 /* Nonblocking connect to one sockaddr; cancellable via *running. */
 static int mb_net_connect_sa (const struct sockaddr *sa, socklen_t salen,
-    int family, volatile int *running, int timeout_ms)
+    int family, mb_atomic_int *running, int timeout_ms)
 {
     int fd;
     int rc;
     int flag = 1;
     int budget;
 
-    if (running && !*running)
+    if (running && !mb_atomic_load (running))
         return -ECANCELED;
 
     fd = socket (family, SOCK_STREAM, 0);
@@ -103,7 +104,7 @@ static int mb_net_connect_sa (const struct sockaddr *sa, socklen_t salen,
         int soerr = 0;
         socklen_t solen = sizeof (soerr);
 
-        if (running && !*running) {
+        if (running && !mb_atomic_load (running)) {
             close (fd);
             return -ECANCELED;
         }
@@ -138,14 +139,14 @@ static int mb_net_connect_sa (const struct sockaddr *sa, socklen_t salen,
 }
 
 int mb_net_connect_while (const char *host, uint16_t port, int *family,
-    volatile int *running, int timeout_ms, int ipv4only)
+    mb_atomic_int *running, int timeout_ms, int ipv4only)
 {
     return mb_net_connect_cached (host, port, family, running, timeout_ms,
         NULL, ipv4only);
 }
 
 int mb_net_connect_cached (const char *host, uint16_t port, int *family,
-    volatile int *running, int timeout_ms, struct mb_net_epaddr *cache,
+    mb_atomic_int *running, int timeout_ms, struct mb_net_epaddr *cache,
     int ipv4only)
 {
     struct addrinfo hints;
@@ -158,7 +159,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
     if (timeout_ms <= 0)
         timeout_ms = 5000;
 
-    if (running && !*running)
+    if (running && !mb_atomic_load (running))
         return -ECANCELED;
 
     /* Reconnect hot path: skip DNS entirely when we already have an addr. */
@@ -190,7 +191,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
     hints.ai_flags = AI_NUMERICHOST;
     rc = getaddrinfo (host, port_str, &hints, &result);
     if (rc != 0) {
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
         hints.ai_flags = 0;
         rc = getaddrinfo (host, port_str, &hints, &result);
@@ -199,7 +200,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
     }
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {
-        if (running && !*running) {
+        if (running && !mb_atomic_load (running)) {
             freeaddrinfo (result);
             return -ECANCELED;
         }
@@ -229,7 +230,7 @@ int mb_net_connect_cached (const char *host, uint16_t port, int *family,
     return -ECONNREFUSED;
 }
 
-int mb_net_unix_connect_while (const char *path, volatile int *running,
+int mb_net_unix_connect_while (const char *path, mb_atomic_int *running,
     int timeout_ms)
 {
     struct sockaddr_un sa;
@@ -242,7 +243,7 @@ int mb_net_unix_connect_while (const char *path, volatile int *running,
     if (timeout_ms <= 0)
         timeout_ms = 5000;
 
-    if (running && !*running)
+    if (running && !mb_atomic_load (running))
         return -ECANCELED;
 
     fd = socket (AF_UNIX, SOCK_STREAM, 0);
@@ -275,7 +276,7 @@ int mb_net_unix_connect_while (const char *path, volatile int *running,
         int soerr = 0;
         socklen_t solen = sizeof (soerr);
 
-        if (running && !*running) {
+        if (running && !mb_atomic_load (running)) {
             close (fd);
             return -ECANCELED;
         }
@@ -338,7 +339,7 @@ int mb_net_bind (const char *host, uint16_t port, int backlog, int ipv4only)
 
     snprintf (port_str, sizeof (port_str), "%u", port);
 
-    /* "*" → dual-stack passive (NULL). Keep "0.0.0.0" as IPv4-any only. */
+    /* "*" -> dual-stack passive (NULL). Keep "0.0.0.0" as IPv4-any only. */
     if (strcmp (host, "*") == 0)
         bind_host = NULL;
     else

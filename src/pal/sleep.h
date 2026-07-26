@@ -1,12 +1,14 @@
 #ifndef MB_SLEEP_H_INCLUDED
 #define MB_SLEEP_H_INCLUDED
 
+#include "atomic.h"
+
 void mb_sleep (int seconds);
 void mb_msleep (int milliseconds);
 
 /* Sleep up to milliseconds, returning early when *running becomes 0.
  * Used by reconnect backoff so stop()/join is not blocked for the full ivl. */
-void mb_msleep_while (volatile int *running, int milliseconds);
+void mb_msleep_while (mb_atomic_int *running, int milliseconds);
 
 /* Cap initial reconnect_ivl to reconnect_ivl_max (0 max = uncapped). */
 int mb_reconnect_cap_ivl (int ivl, int ivl_max);

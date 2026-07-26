@@ -5,6 +5,7 @@
 #include "../../utils/list.h"
 #include "../../pal/mutex.h"
 #include "../../pal/thread.h"
+#include "../../pal/atomic.h"
 
 struct mb_ep;
 
@@ -15,7 +16,7 @@ struct mb_btcp {
     struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
-    volatile int running;
+    mb_atomic_int running;
 };
 
 int mb_btcp_create (struct mb_ep *ep);

@@ -68,7 +68,7 @@ static void mb_btls_on_session_error (void *p)
 }
 
 
-static int mb_btls_ssl_wait (SSL *ssl, int want, volatile int *running,
+static int mb_btls_ssl_wait (SSL *ssl, int want, mb_atomic_int *running,
     int *budget)
 {
     int fd = SSL_get_fd (ssl);
@@ -78,7 +78,7 @@ static int mb_btls_ssl_wait (SSL *ssl, int want, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -99,7 +99,7 @@ static int mb_btls_ssl_wait (SSL *ssl, int want, volatile int *running,
     return -ETIMEDOUT;
 }
 
-static int mb_btls_ssl_accept_while (SSL *ssl, volatile int *running,
+static int mb_btls_ssl_accept_while (SSL *ssl, mb_atomic_int *running,
     int timeout_ms)
 {
     int budget = timeout_ms > 0 ? timeout_ms : 5000;
@@ -108,7 +108,7 @@ static int mb_btls_ssl_accept_while (SSL *ssl, volatile int *running,
         int rc;
         int err;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         rc = SSL_accept (ssl);
@@ -129,7 +129,7 @@ static void mb_btls_accept_loop (void *arg)
 {
     struct mb_btls *self = (struct mb_btls *) arg;
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         struct pollfd pfd;
         int rc;
 
@@ -143,7 +143,7 @@ static void mb_btls_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
-        if (!self->running || self->listen_fd < 0)
+        if (!mb_atomic_load (&self->running) || self->listen_fd < 0)
             continue;
 
         if (pfd.revents & POLLIN) {
@@ -271,13 +271,13 @@ int mb_btls_create (struct mb_ep *ep)
     mb_list_init (&self->stlss);
     mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
 
     mb_ep_tran_setup (ep, &mb_btls_ops, self);
 
     mb_thread_init (&self->accept_thread);
     if (mb_thread_start (&self->accept_thread, mb_btls_accept_loop, self) != 0) {
-        self->running = 0;
+        mb_atomic_store (&self->running, 0);
         if (self->ctx) {
             SSL_CTX_free (self->ctx);
             self->ctx = NULL;
@@ -321,7 +321,7 @@ static void mb_btls_stop (void *p)
 {
     struct mb_btls *self = (struct mb_btls *) p;
 
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
         self->listen_fd = -1;
@@ -339,7 +339,7 @@ static void mb_btls_destroy (void *p)
 {
     struct mb_btls *self = (struct mb_btls *) p;
 
-    if (self->running)
+    if (mb_atomic_load (&self->running))
         mb_btls_stop (p);
 
     mb_mutex_term (&self->lock);

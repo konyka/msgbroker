@@ -27,7 +27,7 @@ static const struct mb_ep_ops mb_ctls_ops = {
     mb_ctls_on_disconnect,
 };
 
-static int mb_ctls_ssl_wait (SSL *ssl, int want, volatile int *running,
+static int mb_ctls_ssl_wait (SSL *ssl, int want, mb_atomic_int *running,
     int *budget)
 {
     int fd = SSL_get_fd (ssl);
@@ -37,7 +37,7 @@ static int mb_ctls_ssl_wait (SSL *ssl, int want, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -59,7 +59,7 @@ static int mb_ctls_ssl_wait (SSL *ssl, int want, volatile int *running,
 }
 
 static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
-    volatile int *running, int timeout_ms)
+    mb_atomic_int *running, int timeout_ms)
 {
     struct mb_sock *sock;
     SSL_CTX *ctx;
@@ -98,7 +98,7 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
         int rc;
         int err;
 
-        if (running && !*running) {
+        if (running && !mb_atomic_load (running)) {
             SSL_free (ssl);
             return NULL;
         }
@@ -141,7 +141,7 @@ static void mb_ctls_reconnect_loop (void *arg)
     mb_ctls_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         int fd;
         SSL *ssl;
         struct mb_stls *stls;
@@ -160,7 +160,7 @@ static void mb_ctls_reconnect_loop (void *arg)
         ssl = mb_ctls_do_ssl_connect (self, fd, &self->running, 5000);
         if (!ssl) {
             close (fd);
-            if (!self->running)
+            if (!mb_atomic_load (&self->running))
                 break;
             mb_msleep_while (&self->running, current_ivl);
             current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
@@ -179,7 +179,7 @@ static void mb_ctls_reconnect_loop (void *arg)
         mb_stls_create (stls, self->ep, ssl);
 
         mb_mutex_lock (&self->lock);
-        if (!self->running) {
+        if (!mb_atomic_load (&self->running)) {
             mb_stls_term (stls);
             mb_free (stls);
             self->reconnecting = 0;
@@ -227,7 +227,7 @@ static int mb_ctls_do_connect (struct mb_ctls *self)
     ssl = mb_ctls_do_ssl_connect (self, fd, &self->running, 5000);
     if (!ssl) {
         close (fd);
-        return self->running ? -ECONNREFUSED : -ECANCELED;
+        return mb_atomic_load (&self->running) ? -ECONNREFUSED : -ECANCELED;
     }
 
     self->stls = (struct mb_stls *) mb_alloc (sizeof (struct mb_stls));
@@ -263,7 +263,7 @@ int mb_ctls_create (struct mb_ep *ep)
     self->ep = ep;
     self->stls = NULL;
     self->zombie = NULL;
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
     self->reconnecting = 0;
     self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
@@ -316,7 +316,7 @@ static void mb_ctls_on_disconnect (void *p)
     int start_reconnect = 0;
 
     mb_mutex_lock (&self->lock);
-    if (!self->running) {
+    if (!mb_atomic_load (&self->running)) {
         mb_mutex_unlock (&self->lock);
         return;
     }
@@ -363,7 +363,7 @@ static void mb_ctls_stop (void *p)
     struct mb_ctls *self = (struct mb_ctls *) p;
 
     mb_mutex_lock (&self->lock);
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->stls) {
         mb_stls_stop (self->stls);
         mb_stls_term (self->stls);

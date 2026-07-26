@@ -56,7 +56,7 @@ static size_t mb_cws_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_cws_io_wait (int fd, short events, volatile int *running,
+static int mb_cws_io_wait (int fd, short events, mb_atomic_int *running,
     int *budget)
 {
     while (*budget > 0) {
@@ -64,7 +64,7 @@ static int mb_cws_io_wait (int fd, short events, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -86,7 +86,7 @@ static int mb_cws_io_wait (int fd, short events, volatile int *running,
 }
 
 static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
-    volatile int *running, int timeout_ms)
+    mb_atomic_int *running, int timeout_ms)
 {
     uint8_t key_bytes[16];
     char key_b64[32];
@@ -126,7 +126,7 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
         while (remaining > 0) {
             ssize_t ns;
 
-            if (running && !*running)
+            if (running && !mb_atomic_load (running))
                 return -ECANCELED;
 
             ns = send (fd, wp, remaining, MSG_NOSIGNAL);
@@ -149,7 +149,7 @@ static int mb_cws_do_handshake (int fd, const char *host, uint16_t port,
     while (pos < sizeof (resp) - 1) {
         ssize_t nr;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         nr = recv (fd, resp + pos, 1, 0);
@@ -211,7 +211,7 @@ static void mb_cws_reconnect_loop (void *arg)
     mb_cws_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         int fd;
         struct mb_sws *sws;
 
@@ -229,7 +229,7 @@ static void mb_cws_reconnect_loop (void *arg)
         if (mb_cws_do_handshake (fd, self->host, self->port,
                 &self->running, 5000) < 0) {
             close (fd);
-            if (!self->running)
+            if (!mb_atomic_load (&self->running))
                 break;
             mb_msleep_while (&self->running, current_ivl);
             current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
@@ -247,7 +247,7 @@ static void mb_cws_reconnect_loop (void *arg)
         mb_sws_create (sws, self->ep, fd, 1);
 
         mb_mutex_lock (&self->lock);
-        if (!self->running) {
+        if (!mb_atomic_load (&self->running)) {
             mb_sws_term (sws);
             mb_free (sws);
             self->reconnecting = 0;
@@ -296,7 +296,7 @@ static int mb_cws_do_connect (struct mb_cws *self)
         &self->running, 5000);
     if (rc < 0) {
         close (fd);
-        return self->running ? -ECONNREFUSED : -ECANCELED;
+        return mb_atomic_load (&self->running) ? -ECONNREFUSED : -ECANCELED;
     }
 
     self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
@@ -331,7 +331,7 @@ int mb_cws_create (struct mb_ep *ep)
     self->ep = ep;
     self->sws = NULL;
     self->zombie = NULL;
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
     self->reconnecting = 0;
     self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
@@ -384,7 +384,7 @@ static void mb_cws_on_disconnect (void *p)
     int start_reconnect = 0;
 
     mb_mutex_lock (&self->lock);
-    if (!self->running) {
+    if (!mb_atomic_load (&self->running)) {
         mb_mutex_unlock (&self->lock);
         return;
     }
@@ -431,7 +431,7 @@ static void mb_cws_stop (void *p)
     struct mb_cws *self = (struct mb_cws *) p;
 
     mb_mutex_lock (&self->lock);
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->sws) {
         mb_sws_stop (self->sws);
         mb_sws_term (self->sws);

@@ -48,7 +48,7 @@ static void mb_ctcp_reconnect_loop (void *arg)
     mb_ctcp_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         int fd;
         struct mb_sipc *sipc;
 
@@ -74,7 +74,7 @@ static void mb_ctcp_reconnect_loop (void *arg)
         mb_sipc_create (sipc, self->ep, fd);
 
         mb_mutex_lock (&self->lock);
-        if (!self->running) {
+        if (!mb_atomic_load (&self->running)) {
             mb_sipc_term (sipc);
             mb_free (sipc);
             self->reconnecting = 0;
@@ -150,7 +150,7 @@ int mb_ctcp_create (struct mb_ep *ep)
     self->ep = ep;
     self->sipc = NULL;
     self->zombie = NULL;
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
     self->reconnecting = 0;
     self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
@@ -205,13 +205,13 @@ static void mb_ctcp_on_disconnect (void *p)
     int start_reconnect = 0;
 
     mb_mutex_lock (&self->lock);
-    if (!self->running) {
+    if (!mb_atomic_load (&self->running)) {
         mb_mutex_unlock (&self->lock);
         return;
     }
 
     /* Stop the pipe (rm from sock) and close the fd, but do NOT free the
-     * session object yet — the caller is still inside sipc_recv/send. */
+     * session object yet - the caller is still inside sipc_recv/send. */
     if (self->sipc) {
         mb_sipc_stop (self->sipc);
         mb_ctcp_free_zombie (self);
@@ -255,7 +255,7 @@ static void mb_ctcp_stop (void *p)
     struct mb_ctcp *self = (struct mb_ctcp *) p;
 
     mb_mutex_lock (&self->lock);
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->sipc) {
         mb_sipc_stop (self->sipc);
         mb_sipc_term (self->sipc);

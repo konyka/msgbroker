@@ -30,7 +30,7 @@ void mb_msleep (int milliseconds)
 #endif
 }
 
-void mb_msleep_while (volatile int *running, int milliseconds)
+void mb_msleep_while (mb_atomic_int *running, int milliseconds)
 {
     int waited = 0;
 
@@ -40,7 +40,7 @@ void mb_msleep_while (volatile int *running, int milliseconds)
     while (waited < milliseconds) {
         int slice;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return;
         slice = milliseconds - waited;
         if (slice > 50)

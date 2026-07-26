@@ -156,7 +156,7 @@ static size_t mb_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_ws_io_wait (int fd, short events, volatile int *running,
+static int mb_ws_io_wait (int fd, short events, mb_atomic_int *running,
     int *budget)
 {
     while (*budget > 0) {
@@ -164,7 +164,7 @@ static int mb_ws_io_wait (int fd, short events, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -186,14 +186,14 @@ static int mb_ws_io_wait (int fd, short events, volatile int *running,
 }
 
 static int mb_ws_read_http (int fd, char *buf, size_t buflen,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     size_t pos = 0;
 
     while (pos < buflen - 1) {
         ssize_t nr;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         nr = recv (fd, buf + pos, 1, 0);
@@ -216,14 +216,14 @@ static int mb_ws_read_http (int fd, char *buf, size_t buflen,
 }
 
 static int mb_ws_write_http (int fd, const char *data, size_t len,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     size_t sent = 0;
 
     while (sent < len) {
         ssize_t ns;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         ns = send (fd, data + sent, len - sent, MSG_NOSIGNAL);
@@ -251,7 +251,7 @@ static char *mb_ws_find_header (const char *req, const char *name)
     return (char *) p;
 }
 
-static int mb_bws_do_handshake (int fd, volatile int *running, int timeout_ms)
+static int mb_bws_do_handshake (int fd, mb_atomic_int *running, int timeout_ms)
 {
     char req[4096];
     char *key;
@@ -300,7 +300,7 @@ static void mb_bws_accept_loop (void *arg)
 {
     struct mb_bws *self = (struct mb_bws *) arg;
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         struct pollfd pfd;
         int rc;
 
@@ -314,7 +314,7 @@ static void mb_bws_accept_loop (void *arg)
 
         if (rc <= 0)
             continue;
-        if (!self->running || self->listen_fd < 0)
+        if (!mb_atomic_load (&self->running) || self->listen_fd < 0)
             continue;
 
         if (pfd.revents & POLLIN) {
@@ -392,13 +392,13 @@ int mb_bws_create (struct mb_ep *ep)
     mb_list_init (&self->sws_list);
     mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
 
     mb_ep_tran_setup (ep, &mb_bws_ops, self);
 
     mb_thread_init (&self->accept_thread);
     if (mb_thread_start (&self->accept_thread, mb_bws_accept_loop, self) != 0) {
-        self->running = 0;
+        mb_atomic_store (&self->running, 0);
         close (self->listen_fd);
         self->listen_fd = -1;
         mb_mutex_term (&self->lock);
@@ -417,7 +417,7 @@ static void mb_bws_stop (void *p)
     struct mb_list_item *it;
     struct mb_list_item *next;
 
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
         self->listen_fd = -1;
@@ -443,7 +443,7 @@ static void mb_bws_destroy (void *p)
 {
     struct mb_bws *self = (struct mb_bws *) p;
 
-    if (self->running)
+    if (mb_atomic_load (&self->running))
         mb_bws_stop (p);
 
     if (self->listen_fd >= 0) {

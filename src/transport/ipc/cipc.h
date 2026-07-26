@@ -3,6 +3,7 @@
 
 #include "../../transport.h"
 #include "../../pal/thread.h"
+#include "../../pal/atomic.h"
 #include "../../pal/mutex.h"
 #include "sipc.h"
 
@@ -12,7 +13,7 @@ struct mb_cipc {
     struct mb_ep *ep;
     struct mb_sipc *sipc;
     struct mb_sipc *zombie;   /* stopped session awaiting free */
-    volatile int running;
+    mb_atomic_int running;
     int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;

@@ -10,6 +10,7 @@
 #include "../../utils/cont.h"
 #include "../../pal/thread.h"
 #include "../../pal/mutex.h"
+#include "../../pal/atomic.h"
 
 #include <msgbroker/mb.h>
 
@@ -34,7 +35,7 @@ struct mb_bwss {
     struct mb_list sws_list;
     struct mb_list zombies;
     struct mb_mutex lock;
-    volatile int running;
+    mb_atomic_int running;
     struct mb_thread accept_thread;
 };
 
@@ -179,7 +180,7 @@ static char *mb_wss_find_header (const char *req, const char *name)
     return (char *) p;
 }
 
-static int mb_bwss_ssl_wait (SSL *ssl, int want, volatile int *running,
+static int mb_bwss_ssl_wait (SSL *ssl, int want, mb_atomic_int *running,
     int *budget)
 {
     int fd = SSL_get_fd (ssl);
@@ -189,7 +190,7 @@ static int mb_bwss_ssl_wait (SSL *ssl, int want, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -210,7 +211,7 @@ static int mb_bwss_ssl_wait (SSL *ssl, int want, volatile int *running,
     return -ETIMEDOUT;
 }
 
-static int mb_bwss_ssl_accept_while (SSL *ssl, volatile int *running,
+static int mb_bwss_ssl_accept_while (SSL *ssl, mb_atomic_int *running,
     int timeout_ms)
 {
     int budget = timeout_ms > 0 ? timeout_ms : 5000;
@@ -219,7 +220,7 @@ static int mb_bwss_ssl_accept_while (SSL *ssl, volatile int *running,
         int rc;
         int err;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         rc = SSL_accept (ssl);
@@ -237,14 +238,14 @@ static int mb_bwss_ssl_accept_while (SSL *ssl, volatile int *running,
 }
 
 static int mb_bwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     size_t pos = 0;
 
     while (pos < buflen - 1) {
         int nr;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         nr = SSL_read (ssl, buf + pos, 1);
@@ -269,7 +270,7 @@ static int mb_bwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
 }
 
 static int mb_bwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     const uint8_t *ptr = (const uint8_t *) data;
     size_t sent = 0;
@@ -277,7 +278,7 @@ static int mb_bwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
     while (sent < len) {
         int ns;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
@@ -298,7 +299,7 @@ static int mb_bwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
     return 0;
 }
 
-static int mb_bwss_do_handshake (SSL *ssl, volatile int *running,
+static int mb_bwss_do_handshake (SSL *ssl, mb_atomic_int *running,
     int timeout_ms)
 {
     char req[4096];
@@ -348,7 +349,7 @@ static void mb_bwss_accept_loop (void *arg)
 {
     struct mb_bwss *self = (struct mb_bwss *) arg;
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         struct pollfd pfd;
         int rc;
 
@@ -361,7 +362,7 @@ static void mb_bwss_accept_loop (void *arg)
         rc = poll (&pfd, 1, 100);
         if (rc <= 0)
             continue;
-        if (!self->running || self->listen_fd < 0)
+        if (!mb_atomic_load (&self->running) || self->listen_fd < 0)
             continue;
 
         if (pfd.revents & POLLIN) {
@@ -486,13 +487,13 @@ int mb_bwss_create (struct mb_ep *ep)
     mb_list_init (&self->sws_list);
     mb_list_init (&self->zombies);
     mb_mutex_init (&self->lock);
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
 
     mb_ep_tran_setup (ep, &mb_bwss_ops, self);
 
     mb_thread_init (&self->accept_thread);
     if (mb_thread_start (&self->accept_thread, mb_bwss_accept_loop, self) != 0) {
-        self->running = 0;
+        mb_atomic_store (&self->running, 0);
         if (self->ctx) {
             SSL_CTX_free (self->ctx);
             self->ctx = NULL;
@@ -515,7 +516,7 @@ static void mb_bwss_stop (void *p)
     struct mb_list_item *it;
     struct mb_list_item *next;
 
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->listen_fd >= 0) {
         close (self->listen_fd);
         self->listen_fd = -1;
@@ -541,7 +542,7 @@ static void mb_bwss_destroy (void *p)
 {
     struct mb_bwss *self = (struct mb_bwss *) p;
 
-    if (self->running)
+    if (mb_atomic_load (&self->running))
         mb_bwss_stop (p);
 
     if (self->listen_fd >= 0) {

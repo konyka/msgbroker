@@ -8,6 +8,7 @@
 #include "../../utils/net.h"
 #include "../../pal/thread.h"
 #include "../../pal/mutex.h"
+#include "../../pal/atomic.h"
 #include "../../pal/sleep.h"
 
 #include <msgbroker/mb.h>
@@ -42,7 +43,7 @@ struct mb_cwss {
     struct mb_ep *ep;
     struct mb_sws *sws;
     struct mb_sws *zombie;   /* stopped session awaiting free */
-    volatile int running;
+    mb_atomic_int running;
     int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;
@@ -69,7 +70,7 @@ static size_t mb_cwss_b64_encode (const uint8_t *src, size_t len, char *dst)
     return j;
 }
 
-static int mb_cwss_ssl_wait (SSL *ssl, int want, volatile int *running,
+static int mb_cwss_ssl_wait (SSL *ssl, int want, mb_atomic_int *running,
     int *budget)
 {
     int fd = SSL_get_fd (ssl);
@@ -79,7 +80,7 @@ static int mb_cwss_ssl_wait (SSL *ssl, int want, volatile int *running,
         int slice = *budget > 50 ? 50 : *budget;
         int rc;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         pfd.fd = fd;
@@ -101,7 +102,7 @@ static int mb_cwss_ssl_wait (SSL *ssl, int want, volatile int *running,
 }
 
 static int mb_cwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     const uint8_t *ptr = (const uint8_t *) data;
     size_t sent = 0;
@@ -109,7 +110,7 @@ static int mb_cwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
     while (sent < len) {
         int ns;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         ns = SSL_write (ssl, ptr + sent, (int) (len - sent));
@@ -131,14 +132,14 @@ static int mb_cwss_ssl_write_all (SSL *ssl, const void *data, size_t len,
 }
 
 static int mb_cwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
-    volatile int *running, int *budget)
+    mb_atomic_int *running, int *budget)
 {
     size_t pos = 0;
 
     while (pos < buflen - 1) {
         int nr;
 
-        if (running && !*running)
+        if (running && !mb_atomic_load (running))
             return -ECANCELED;
 
         nr = SSL_read (ssl, buf + pos, 1);
@@ -163,7 +164,7 @@ static int mb_cwss_ssl_read_http (SSL *ssl, char *buf, size_t buflen,
 }
 
 static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
-    volatile int *running, int timeout_ms)
+    mb_atomic_int *running, int timeout_ms)
 {
     uint8_t key_bytes[16];
     char key_b64[32];
@@ -226,7 +227,7 @@ static int mb_cwss_do_handshake (SSL *ssl, const char *host, uint16_t port,
 }
 
 static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd,
-    volatile int *running, int timeout_ms)
+    mb_atomic_int *running, int timeout_ms)
 {
     struct mb_sock *sock;
     SSL_CTX *ctx;
@@ -265,7 +266,7 @@ static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd,
         int rc;
         int err;
 
-        if (running && !*running) {
+        if (running && !mb_atomic_load (running)) {
             SSL_free (ssl);
             return NULL;
         }
@@ -308,7 +309,7 @@ static void mb_cwss_reconnect_loop (void *arg)
     mb_cwss_free_zombie (self);
     mb_mutex_unlock (&self->lock);
 
-    while (self->running) {
+    while (mb_atomic_load (&self->running)) {
         int fd;
         SSL *ssl;
         struct mb_sws *sws;
@@ -327,7 +328,7 @@ static void mb_cwss_reconnect_loop (void *arg)
         ssl = mb_cwss_do_tls_connect (self, fd, &self->running, 5000);
         if (!ssl) {
             close (fd);
-            if (!self->running)
+            if (!mb_atomic_load (&self->running))
                 break;
             mb_msleep_while (&self->running, current_ivl);
             current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
@@ -338,7 +339,7 @@ static void mb_cwss_reconnect_loop (void *arg)
                 &self->running, 5000) < 0) {
             SSL_free (ssl);
             close (fd);
-            if (!self->running)
+            if (!mb_atomic_load (&self->running))
                 break;
             mb_msleep_while (&self->running, current_ivl);
             current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
@@ -359,7 +360,7 @@ static void mb_cwss_reconnect_loop (void *arg)
         mb_sws_set_on_error (sws, mb_cwss_on_disconnect, self);
 
         mb_mutex_lock (&self->lock);
-        if (!self->running) {
+        if (!mb_atomic_load (&self->running)) {
             mb_sws_term (sws);
             mb_free (sws);
             self->reconnecting = 0;
@@ -407,7 +408,7 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     ssl = mb_cwss_do_tls_connect (self, fd, &self->running, 5000);
     if (!ssl) {
         close (fd);
-        return self->running ? -ECONNREFUSED : -ECANCELED;
+        return mb_atomic_load (&self->running) ? -ECONNREFUSED : -ECANCELED;
     }
 
     rc = mb_cwss_do_handshake (ssl, self->host, self->port,
@@ -415,7 +416,7 @@ static int mb_cwss_do_connect (struct mb_cwss *self)
     if (rc < 0) {
         SSL_free (ssl);
         close (fd);
-        return self->running ? -ECONNREFUSED : -ECANCELED;
+        return mb_atomic_load (&self->running) ? -ECONNREFUSED : -ECANCELED;
     }
 
     self->sws = (struct mb_sws *) mb_alloc (sizeof (struct mb_sws));
@@ -452,7 +453,7 @@ int mb_cwss_create (struct mb_ep *ep)
     self->ep = ep;
     self->sws = NULL;
     self->zombie = NULL;
-    self->running = 1;
+    mb_atomic_store (&self->running, 1);
     self->reconnecting = 0;
     self->resolved.ready = 0;
     mb_mutex_init (&self->lock);
@@ -505,7 +506,7 @@ static void mb_cwss_on_disconnect (void *p)
     int start_reconnect = 0;
 
     mb_mutex_lock (&self->lock);
-    if (!self->running) {
+    if (!mb_atomic_load (&self->running)) {
         mb_mutex_unlock (&self->lock);
         return;
     }
@@ -552,7 +553,7 @@ static void mb_cwss_stop (void *p)
     struct mb_cwss *self = (struct mb_cwss *) p;
 
     mb_mutex_lock (&self->lock);
-    self->running = 0;
+    mb_atomic_store (&self->running, 0);
     if (self->sws) {
         mb_sws_stop (self->sws);
         mb_sws_term (self->sws);

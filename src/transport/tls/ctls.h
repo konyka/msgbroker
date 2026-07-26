@@ -3,6 +3,7 @@
 
 #include "../../transport.h"
 #include "../../pal/thread.h"
+#include "../../pal/atomic.h"
 #include "../../pal/mutex.h"
 #include "../../utils/net.h"
 #include "stls.h"
@@ -16,7 +17,7 @@ struct mb_ctls {
     struct mb_ep *ep;
     struct mb_stls *stls;
     struct mb_stls *zombie;   /* stopped session awaiting free */
-    volatile int running;
+    mb_atomic_int running;
     int reconnecting;
     struct mb_thread reconnect_thread;
     struct mb_mutex lock;

@@ -5,6 +5,7 @@
 #include "../../utils/list.h"
 #include "../../pal/mutex.h"
 #include "../../pal/thread.h"
+#include "../../pal/atomic.h"
 
 #include <openssl/ssl.h>
 
@@ -18,7 +19,7 @@ struct mb_btls {
     struct mb_list zombies;
     struct mb_mutex lock;
     struct mb_thread accept_thread;
-    volatile int running;
+    mb_atomic_int running;
 };
 
 int mb_btls_create (struct mb_ep *ep);
