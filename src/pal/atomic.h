@@ -9,7 +9,7 @@
 typedef _Atomic int mb_atomic_int;
 typedef _Atomic uint32_t mb_atomic_uint32;
 typedef _Atomic uint64_t mb_atomic_uint64;
-typedef _Atomic void *mb_atomic_ptr;
+typedef _Atomic(void *) mb_atomic_ptr;
 
 #define mb_atomic_load(ptr)            atomic_load(ptr)
 #define mb_atomic_store(ptr, val)      atomic_store(ptr, val)
