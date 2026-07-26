@@ -122,17 +122,88 @@ static int mb_evloop_uring_mask (int events)
     return mask;
 }
 
+static struct mb_evloop_entry *mb_evloop_find_entry (struct mb_evloop *self,
+    int fd)
+{
+    int i;
+
+    for (i = 0; i < MB_EVLOOP_MAX_EVENTS; i++) {
+        if (self->iouring.entries[i].active &&
+            self->iouring.entries[i].fd == fd)
+            return &self->iouring.entries[i];
+    }
+    return NULL;
+}
+
+static struct mb_evloop_entry *mb_evloop_alloc_entry (struct mb_evloop *self)
+{
+    int i;
+
+    for (i = 0; i < MB_EVLOOP_MAX_EVENTS; i++) {
+        if (!self->iouring.entries[i].active &&
+            !self->iouring.entries[i].pending)
+            return &self->iouring.entries[i];
+    }
+    return NULL;
+}
+
+static int mb_evloop_submit_uring_poll (struct mb_evloop *self,
+    struct mb_evloop_entry *entry)
+{
+    struct io_uring_sqe *sqe;
+    int rc;
+
+    sqe = io_uring_get_sqe (&self->iouring.ring);
+    if (!sqe)
+        return -ENOMEM;
+    io_uring_prep_poll_add (sqe, entry->fd,
+        mb_evloop_uring_mask (entry->events));
+    io_uring_sqe_set_data (sqe, entry);
+    rc = io_uring_submit (&self->iouring.ring);
+    if (rc >= 0)
+        entry->pending = 1;
+    return rc < 0 ? rc : 0;
+}
+
+static int mb_evloop_cancel_uring_poll (struct mb_evloop *self,
+    struct mb_evloop_entry *entry)
+{
+    struct io_uring_sqe *sqe;
+    int rc;
+
+    sqe = io_uring_get_sqe (&self->iouring.ring);
+    if (!sqe)
+        return -ENOMEM;
+    io_uring_prep_poll_remove (sqe, (uint64_t) (uintptr_t) entry);
+    io_uring_sqe_set_data (sqe, NULL);
+    rc = io_uring_submit (&self->iouring.ring);
+    return rc < 0 ? rc : 0;
+}
+
 int mb_evloop_add (struct mb_evloop *self, int fd, int events,
     struct mb_evloop_cb *cb)
 {
     if (self->backend == MB_EVLOOP_BACKEND_IOURING) {
-        struct io_uring_sqe *sqe = io_uring_get_sqe (&self->iouring.ring);
-        if (!sqe)
+        struct mb_evloop_entry *entry;
+        int rc;
+
+        if (mb_evloop_find_entry (self, fd))
+            return -EEXIST;
+
+        entry = mb_evloop_alloc_entry (self);
+        if (!entry)
             return -ENOMEM;
-        io_uring_prep_poll_add (sqe, fd, mb_evloop_uring_mask (events));
-        io_uring_sqe_set_data (sqe, cb);
-        io_uring_submit (&self->iouring.ring);
-        return 0;
+        entry->fd = fd;
+        entry->events = events;
+        entry->cb = cb;
+        entry->active = 1;
+        entry->pending = 0;
+        rc = mb_evloop_submit_uring_poll (self, entry);
+        if (rc < 0) {
+            entry->active = 0;
+            entry->pending = 0;
+        }
+        return rc;
     }
 
     struct epoll_event ev;
@@ -145,24 +216,17 @@ int mb_evloop_modify (struct mb_evloop *self, int fd, int events,
     struct mb_evloop_cb *cb)
 {
     if (self->backend == MB_EVLOOP_BACKEND_IOURING) {
-        struct io_uring_sqe *sqe;
-        struct io_uring_cqe *cqe;
+        struct mb_evloop_entry *entry;
 
-        sqe = io_uring_get_sqe (&self->iouring.ring);
-        if (!sqe)
-            return -ENOMEM;
-        io_uring_prep_poll_remove (sqe, (uint64_t)(uintptr_t) cb);
-        io_uring_submit (&self->iouring.ring);
-        io_uring_wait_cqe (&self->iouring.ring, &cqe);
-        io_uring_cqe_seen (&self->iouring.ring, cqe);
+        entry = mb_evloop_find_entry (self, fd);
+        if (!entry)
+            return -ENOENT;
 
-        sqe = io_uring_get_sqe (&self->iouring.ring);
-        if (!sqe)
-            return -ENOMEM;
-        io_uring_prep_poll_add (sqe, fd, mb_evloop_uring_mask (events));
-        io_uring_sqe_set_data (sqe, cb);
-        io_uring_submit (&self->iouring.ring);
-        return 0;
+        entry->events = events;
+        entry->cb = cb;
+        if (entry->pending)
+            return 0;
+        return mb_evloop_submit_uring_poll (self, entry);
     }
 
     struct epoll_event ev;
@@ -174,8 +238,14 @@ int mb_evloop_modify (struct mb_evloop *self, int fd, int events,
 int mb_evloop_remove (struct mb_evloop *self, int fd)
 {
     if (self->backend == MB_EVLOOP_BACKEND_IOURING) {
-        (void) fd;
-        return 0;
+        struct mb_evloop_entry *entry = mb_evloop_find_entry (self, fd);
+        if (!entry)
+            return -ENOENT;
+        entry->active = 0;
+        entry->cb = NULL;
+        if (!entry->pending)
+            return 0;
+        return mb_evloop_cancel_uring_poll (self, entry);
     }
     return epoll_ctl (self->ep.epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 }
@@ -185,7 +255,10 @@ int mb_evloop_poll (struct mb_evloop *self, int timeout_ms)
     if (self->backend == MB_EVLOOP_BACKEND_IOURING) {
         struct __kernel_timespec ts;
         struct io_uring_cqe *cqe;
+        struct mb_evloop_entry *entry;
+        struct mb_evloop_cb *cb;
         int rc;
+        int ev_flags = 0;
 
         if (timeout_ms >= 0) {
             ts.tv_sec = timeout_ms / 1000;
@@ -198,28 +271,28 @@ int mb_evloop_poll (struct mb_evloop *self, int timeout_ms)
         if (rc < 0)
             return (rc == -ETIME) ? 0 : rc;
 
-        struct mb_evloop_cb *cb =
-            (struct mb_evloop_cb *) io_uring_cqe_get_data (cqe);
-        int ev_flags = 0;
-        if (cqe->res & (POLLIN | POLLHUP | POLLERR))
+        entry = (struct mb_evloop_entry *) io_uring_cqe_get_data (cqe);
+        if (entry)
+            entry->pending = 0;
+        cb = (entry && entry->active) ? entry->cb : NULL;
+        if (cqe->res < 0) {
+            entry = NULL;
+            cb = NULL;
+        }
+        else if (cqe->res & (POLLIN | POLLHUP | POLLERR))
             ev_flags |= MB_EVLOOP_IN;
-        if (cqe->res & POLLOUT)
+        if (cqe->res >= 0 && (cqe->res & POLLOUT))
             ev_flags |= MB_EVLOOP_OUT;
         io_uring_cqe_seen (&self->iouring.ring, cqe);
 
-        if (cb && cb->on_event)
+        if (ev_flags && cb && cb->on_event)
             cb->on_event (cb->data, ev_flags);
 
-        if (ev_flags && cb) {
-            struct io_uring_sqe *sqe =
-                io_uring_get_sqe (&self->iouring.ring);
-            if (sqe && cqe->flags == 0) {
-                io_uring_prep_poll_add (sqe, cqe->res >> 16,
-                    POLLIN | POLLOUT);
-            }
-        }
+        if (entry && entry->active &&
+            mb_evloop_submit_uring_poll (self, entry) < 0)
+            return -EIO;
 
-        return 1;
+        return ev_flags ? 1 : 0;
     }
 
     struct epoll_event events [32];

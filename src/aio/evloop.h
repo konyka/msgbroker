@@ -12,6 +12,8 @@
 
 #include <stdint.h>
 
+#define MB_EVLOOP_MAX_EVENTS 64
+
 #define MB_EVLOOP_IN  1
 #define MB_EVLOOP_OUT 2
 
@@ -21,6 +23,14 @@
 struct mb_evloop_cb {
     void (*on_event) (void *data, int events);
     void *data;
+};
+
+struct mb_evloop_entry {
+    int fd;
+    int events;
+    int active;
+    int pending;
+    struct mb_evloop_cb *cb;
 };
 
 struct mb_evloop {
@@ -35,6 +45,7 @@ struct mb_evloop {
     struct {
         struct io_uring ring;
         int ring_fd;
+        struct mb_evloop_entry entries[MB_EVLOOP_MAX_EVENTS];
     } iouring;
 #elif defined MB_HAVE_KQUEUE
     int kqueue_fd;
