@@ -1,5 +1,4 @@
 #include "efd.h"
-#include "../utils/fast.h"
 
 #if defined _WIN32
 #include "win.h"
@@ -22,10 +21,16 @@ static void mb_efd_write_once (struct mb_efd *self)
     SetEvent (self->event);
 #elif defined MB_HAVE_EVENTFD
     uint64_t val = 1;
-    (void) write (self->fd, &val, sizeof (val));
+    ssize_t n;
+    do {
+        n = write (self->fd, &val, sizeof (val));
+    } while (n < 0 && errno == EINTR);
 #else
     char c = 1;
-    (void) write (self->fds [1], &c, 1);
+    ssize_t n;
+    do {
+        n = write (self->fds [1], &c, 1);
+    } while (n < 0 && errno == EINTR);
 #endif
 }
 
@@ -84,7 +89,10 @@ void mb_efd_unsignal (struct mb_efd *self)
     ResetEvent (self->event);
 #elif defined MB_HAVE_EVENTFD
     uint64_t val;
-    (void) read (self->fd, &val, sizeof (val));
+    ssize_t n;
+    do {
+        n = read (self->fd, &val, sizeof (val));
+    } while (n < 0 && errno == EINTR);
 #else
     char buf [16];
     while (read (self->fds [0], buf, sizeof (buf)) > 0) {}
