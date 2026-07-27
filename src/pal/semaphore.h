@@ -3,6 +3,8 @@
 
 #if defined _WIN32
 #include "win.h"
+#elif defined __APPLE__
+#include <pthread.h>
 #else
 #include <semaphore.h>
 #endif
@@ -10,6 +12,10 @@
 struct mb_sem {
 #if defined _WIN32
     HANDLE handle;
+#elif defined __APPLE__
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int count;
 #else
     sem_t sem;
 #endif
