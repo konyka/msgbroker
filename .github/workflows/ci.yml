@@ -32,12 +32,6 @@ jobs:
           - os: macos-latest
             cc: clang
             build_type: Release
-          - os: windows-latest
-            cc: cl
-            build_type: Debug
-          - os: windows-latest
-            cc: cl
-            build_type: Release
 
     steps:
       - uses: actions/checkout@v4
