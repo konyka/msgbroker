@@ -148,6 +148,16 @@ int verify = 1;
 mb_setsockopt(s, MB_TLS, MB_TLS_CONFIG_VERIFY, &verify, sizeof(verify));
 ```
 
+When `MB_TLS_CONFIG_VERIFY` is enabled, msgbroker performs both CA-chain
+validation and **hostname verification** (matches the certificate `CN`/`SAN`
+against the `host` portion of the endpoint URL, or matches the `iPAddress` SAN
+when `host` is a literal IPv4/IPv6 address). For DNS hostnames the client also
+sends the TLS Server Name Indication (SNI) extension so the server can return
+the correct virtual-host certificate. Wildcard matching is restricted to
+full-label wildcards only. With verification disabled, neither SNI nor
+hostname checks are applied (intentional, to support the existing test/dev
+workflows that use self-signed or mismatched certificates).
+
 ### Auto-Reconnect
 
 All connect endpoints (TCP, TLS, WS, WSS) support automatic reconnection with exponential backoff:
