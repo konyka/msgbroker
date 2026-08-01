@@ -139,7 +139,20 @@ struct fake_wss_arg {
     const char *cert;
     const char *key;
     const char *resp;
+    const char *expected_sni;
+    int saw_expected_sni;
 };
+
+static int fake_wss_sni_cb (SSL *ssl, int *alert, void *arg)
+{
+    struct fake_wss_arg *a = (struct fake_wss_arg *) arg;
+    const char *name = SSL_get_servername (ssl, TLSEXT_NAMETYPE_host_name);
+
+    (void) alert;
+    a->saw_expected_sni = name && a->expected_sni &&
+        strcmp (name, a->expected_sni) == 0;
+    return SSL_TLSEXT_ERR_OK;
+}
 
 /* Fake TLS WS handshake responder (resp chosen by caller). */
 static void *fake_wss_handshake_resp (void *arg)
@@ -156,6 +169,10 @@ static void *fake_wss_handshake_resp (void *arg)
     if (!ctx)
         return NULL;
     SSL_CTX_set_min_proto_version (ctx, TLS1_2_VERSION);
+    if (a->expected_sni) {
+        SSL_CTX_set_tlsext_servername_callback (ctx, fake_wss_sni_cb);
+        SSL_CTX_set_tlsext_servername_arg (ctx, a);
+    }
     if (SSL_CTX_use_certificate_file (ctx, a->cert, SSL_FILETYPE_PEM) != 1 ||
         SSL_CTX_use_PrivateKey_file (ctx, a->key, SSL_FILETYPE_PEM) != 1) {
         SSL_CTX_free (ctx);
@@ -192,8 +209,10 @@ static void *fake_wss_handshake_resp (void *arg)
             break;
     }
 
-    (void) SSL_write (ssl, resp, (int) strlen (resp));
-    usleep (200000);
+    if (resp) {
+        (void) SSL_write (ssl, resp, (int) strlen (resp));
+        usleep (200000);
+    }
     SSL_shutdown (ssl);
     SSL_free (ssl);
     close (fd);
@@ -245,6 +264,8 @@ static void test_wss_reject_missing_accept (void)
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "\r\n";
+    arg.expected_sni = NULL;
+    arg.saw_expected_sni = 0;
     rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
     assert (rc == 0);
 
@@ -316,6 +337,8 @@ static void test_wss_reject_bad_accept (void)
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Accept: dGVzdA==\r\n"
         "\r\n";
+    arg.expected_sni = NULL;
+    arg.saw_expected_sni = 0;
     rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
     assert (rc == 0);
 
@@ -342,6 +365,121 @@ static void test_wss_reject_bad_accept (void)
     printf ("  test_wss_reject_bad_accept: PASSED\n");
 }
 
+static void test_wss_verified_hostname (void)
+{
+    int listen_fd;
+    int s2;
+    int rc;
+    int ivl = 0;
+    int verify = 1;
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof (sa);
+    pthread_t thr;
+    struct fake_wss_arg arg;
+    uint16_t port;
+    const char *cert = "/tmp/mb_test_wss_verify_cert.pem";
+    const char *key = "/tmp/mb_test_wss_verify_key.pem";
+
+    rc = system ("openssl req -x509 -newkey rsa:2048 "
+        "-keyout /tmp/mb_test_wss_verify_key.pem "
+        "-out /tmp/mb_test_wss_verify_cert.pem "
+        "-days 1 -nodes -subj '/CN=localhost' "
+        "-addext 'subjectAltName=DNS:localhost' 2>/dev/null");
+    assert (rc == 0);
+
+    listen_fd = socket (AF_INET, SOCK_STREAM, 0);
+    assert (listen_fd >= 0);
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    sa.sin_port = 0;
+    rc = bind (listen_fd, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+    rc = getsockname (listen_fd, (struct sockaddr *) &sa, &salen);
+    assert (rc == 0);
+    port = ntohs (sa.sin_port);
+    rc = listen (listen_fd, 1);
+    assert (rc == 0);
+
+    arg.listen_fd = listen_fd;
+    arg.cert = cert;
+    arg.key = key;
+    arg.resp = NULL;
+    arg.expected_sni = "localhost";
+    arg.saw_expected_sni = 0;
+    rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
+    assert (rc == 0);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_CA, cert, strlen (cert));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_VERIFY, &verify,
+        sizeof (verify));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl,
+        sizeof (ivl));
+    assert (rc == 0);
+
+    {
+        char url[96];
+        snprintf (url, sizeof (url), "wss://localhost:%u", (unsigned) port);
+        rc = mb_connect (s2, url);
+    }
+    assert (rc < 0);
+
+    pthread_join (thr, NULL);
+    assert (arg.saw_expected_sni);
+    close (listen_fd);
+    mb_close (s2);
+
+    printf ("  test_wss_verified_hostname_match: PASSED\n");
+
+    listen_fd = socket (AF_INET, SOCK_STREAM, 0);
+    assert (listen_fd >= 0);
+    memset (&sa, 0, sizeof (sa));
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+    sa.sin_port = 0;
+    rc = bind (listen_fd, (struct sockaddr *) &sa, sizeof (sa));
+    assert (rc == 0);
+    rc = getsockname (listen_fd, (struct sockaddr *) &sa, &salen);
+    assert (rc == 0);
+    port = ntohs (sa.sin_port);
+    rc = listen (listen_fd, 1);
+    assert (rc == 0);
+
+    arg.listen_fd = listen_fd;
+    arg.saw_expected_sni = 0;
+    rc = pthread_create (&thr, NULL, fake_wss_handshake_resp, &arg);
+    assert (rc == 0);
+
+    s2 = mb_socket (AF_MB, MB_PAIR);
+    assert (s2 >= 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_CA, cert, strlen (cert));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_TLS, MB_TLS_CONFIG_VERIFY, &verify,
+        sizeof (verify));
+    assert (rc == 0);
+    rc = mb_setsockopt (s2, MB_SOL_SOCKET, MB_RECONNECT_IVL, &ivl,
+        sizeof (ivl));
+    assert (rc == 0);
+
+    {
+        char url[96];
+        snprintf (url, sizeof (url), "wss://127.0.0.1:%u", (unsigned) port);
+        rc = mb_connect (s2, url);
+    }
+    assert (rc < 0);
+
+    pthread_join (thr, NULL);
+    assert (!arg.saw_expected_sni);
+    close (listen_fd);
+    mb_close (s2);
+
+    printf ("  test_wss_verified_hostname_mismatch: PASSED\n");
+}
+
 int main (void)
 {
     printf ("WSS (WebSocket Secure) Tests:\n");
@@ -350,6 +488,7 @@ int main (void)
     test_wss_bidirectional ();
     test_wss_reject_missing_accept ();
     test_wss_reject_bad_accept ();
+    test_wss_verified_hostname ();
 
     printf ("\nAll WSS tests PASSED\n");
     return 0;
