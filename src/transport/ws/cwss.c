@@ -258,6 +258,27 @@ static SSL *mb_cwss_do_tls_connect (struct mb_cwss *self, int fd,
     if (!ssl)
         return NULL;
 
+    if (sock->tls_verify) {
+        X509_VERIFY_PARAM *param = SSL_get0_param (ssl);
+        struct in_addr addr4;
+        struct in6_addr addr6;
+        int is_ip = inet_pton (AF_INET, self->host, &addr4) == 1 ||
+            inet_pton (AF_INET6, self->host, &addr6) == 1;
+
+        if (is_ip) {
+            if (X509_VERIFY_PARAM_set1_ip_asc (param, self->host) != 1) {
+                SSL_free (ssl);
+                return NULL;
+            }
+        } else {
+            if (SSL_set_tlsext_host_name (ssl, self->host) != 1 ||
+                X509_VERIFY_PARAM_set1_host (param, self->host, 0) != 1) {
+                SSL_free (ssl);
+                return NULL;
+            }
+        }
+    }
+
     SSL_set_fd (ssl, fd);
     SSL_set_connect_state (ssl);
 
