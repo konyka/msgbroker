@@ -14,8 +14,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 
 static void mb_ctls_stop (void *p);
 static void mb_ctls_destroy (void *p);
@@ -58,6 +61,55 @@ static int mb_ctls_ssl_wait (SSL *ssl, int want, mb_atomic_int *running,
     return -ETIMEDOUT;
 }
 
+/* Return 1 if host looks like an IPv4 or IPv6 literal (so SNI must be
+   skipped), 0 if it is a DNS name (SNI valid), -1 on parse error. */
+static int mb_ctls_host_is_ip (const char *host)
+{
+    struct in_addr v4;
+    struct in6_addr v6;
+
+    if (!host || !host[0])
+        return -1;
+    if (inet_pton (AF_INET, host, &v4) == 1)
+        return 1;
+    if (inet_pton (AF_INET6, host, &v6) == 1)
+        return 1;
+    return 0;
+}
+
+/* Wire hostname verification + SNI onto an SSL client session. Only
+   invoked when sock->tls_verify is enabled and the parsed host is
+   non-empty. Returns 0 on success, -1 on hard failure (caller frees
+   the SSL). When the host is a numeric IP, SNI is skipped (RFC 6066
+   forbids it) and verification falls back to iPAddress SAN matching
+   inside OpenSSL. */
+static int mb_ctls_set_host_identity (SSL *ssl, const char *host)
+{
+    X509_VERIFY_PARAM *param;
+    int is_ip;
+    unsigned int flags;
+
+    if (SSL_set1_host (ssl, host) != 1)
+        return -1;
+    param = SSL_get0_param (ssl);
+    if (!param)
+        return -1;
+    flags = X509_VERIFY_PARAM_get_hostflags (param);
+    flags |= X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS;
+    X509_VERIFY_PARAM_set_hostflags (param, flags);
+
+    is_ip = mb_ctls_host_is_ip (host);
+    if (is_ip < 0)
+        return -1;
+    if (is_ip == 0) {
+        /* SNI is only meaningful for DNS hostnames; OpenSSL returns
+           failure on IP literals per RFC 6066. */
+        if (SSL_set_tlsext_host_name (ssl, host) != 1)
+            return -1;
+    }
+    return 0;
+}
+
 static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
     mb_atomic_int *running, int timeout_ms)
 {
@@ -65,6 +117,7 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
     SSL_CTX *ctx;
     SSL *ssl;
     int budget;
+    int do_verify;
 
     ctx = SSL_CTX_new (TLS_client_method ());
     if (!ctx)
@@ -73,7 +126,8 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
     SSL_CTX_set_min_proto_version (ctx, TLS1_2_VERSION);
 
     sock = mb_ep_sock (self->ep);
-    if (!sock->tls_verify) {
+    do_verify = sock->tls_verify;
+    if (!do_verify) {
         SSL_CTX_set_verify (ctx, SSL_VERIFY_NONE, NULL);
     } else {
         SSL_CTX_set_verify (ctx, SSL_VERIFY_PEER, NULL);
@@ -92,6 +146,13 @@ static SSL *mb_ctls_do_ssl_connect (struct mb_ctls *self, int fd,
 
     SSL_set_fd (ssl, fd);
     SSL_set_connect_state (ssl);
+
+    if (do_verify && self->host[0]) {
+        if (mb_ctls_set_host_identity (ssl, self->host) < 0) {
+            SSL_free (ssl);
+            return NULL;
+        }
+    }
 
     budget = timeout_ms > 0 ? timeout_ms : 5000;
     for (;;) {
