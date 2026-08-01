@@ -66,3 +66,7 @@ mb_config.h
 .vscode/
 .idea/
 cmake-build-*/
+
+# Internal planning / audit scratch (not for the public tree)
+docs/plan-validation-*.md
+docs/audit-*.md
