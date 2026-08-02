@@ -9,14 +9,16 @@ static void mb_cluster_on_discovery (void *ctx, uint32_t node_id,
     mb_cluster_join_node (cluster, node_id, addr);
 }
 
-static void mb_cluster_on_gossip_change (void *ctx,
-    struct mb_gossip_node *node, enum mb_gossip_node_state old_state)
+static void mb_cluster_on_gossip_change (void *ctx, uint32_t node_id,
+    const char *addr, enum mb_gossip_node_state old_state,
+    enum mb_gossip_node_state new_state)
 {
     struct mb_cluster *cluster = (struct mb_cluster *) ctx;
+    (void) addr;
     (void) old_state;
 
-    if (node->state == MB_GOSSIP_NODE_DEAD)
-        mb_cluster_leave_node (cluster, node->node_id);
+    if (new_state == MB_GOSSIP_NODE_DEAD)
+        mb_cluster_leave_node (cluster, node_id);
 }
 
 void mb_cluster_init (struct mb_cluster *self, uint32_t node_id,
