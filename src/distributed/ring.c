@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
 static uint32_t mb_ring_hash (const void *data, size_t len)
 {
@@ -83,6 +84,20 @@ static void mb_ring_insert_vnode_sorted (struct mb_ring *self,
 
 int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
 {
+    /* Reject duplicates: a duplicate add would multiply virtual nodes and
+       skew the consistent-hash distribution. Discovery can deliver the
+       same node_id multiple times on retransmit; callers must therefore
+       tolerate -EEXIST. */
+    struct mb_list_item *it;
+    for (it = mb_list_begin (&self->nodes);
+         it != mb_list_end (&self->nodes);
+         it = mb_list_next (&self->nodes, it)) {
+        struct mb_ring_node *existing = mb_cont (it, struct mb_ring_node,
+            item);
+        if (existing->node_id == node_id)
+            return -EEXIST;
+    }
+
     struct mb_ring_node *node = (struct mb_ring_node *)
         mb_alloc (sizeof (struct mb_ring_node));
     if (!node)
@@ -94,25 +109,31 @@ int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
     mb_list_item_init (&node->item);
     mb_list_insert (&self->nodes, &node->item, mb_list_end (&self->nodes));
 
+    int inserted = 0;
     for (int i = 0; i < self->virtual_count; i++) {
         struct mb_ring_vnode *vn = (struct mb_ring_vnode *)
             mb_alloc (sizeof (struct mb_ring_vnode));
         if (!vn) {
-            for (int j = 0; j < i; j++) {
-                struct mb_list_item *vi = mb_list_begin (&self->vnodes);
-                while (vi != mb_list_end (&self->vnodes)) {
-                    struct mb_ring_vnode *v = mb_cont (vi, struct mb_ring_vnode, item);
-                    vi = mb_list_next (&self->vnodes, vi);
-                    if (v->node_id == node_id) {
-                        mb_list_erase (&self->vnodes, &v->item);
-                        mb_list_item_term (&v->item);
-                        mb_free (v);
-                    }
+            /* Unwind only the vnodes this call already inserted; the
+               node itself is torn down last. Each vn was added to
+               self->vnodes by mb_ring_insert_vnode_sorted so we erase
+               via the list (which also calls mb_list_item_term through
+               its cont invariant) and then free. */
+            struct mb_list_item *vi = mb_list_begin (&self->vnodes);
+            while (vi != mb_list_end (&self->vnodes)) {
+                struct mb_ring_vnode *v = mb_cont (vi, struct mb_ring_vnode,
+                    item);
+                struct mb_list_item *next = mb_list_next (&self->vnodes,
+                    vi);
+                if (v->node_id == node_id) {
+                    mb_list_erase (&self->vnodes, &v->item);
+                    mb_free (v);
                 }
+                vi = next;
             }
             mb_list_erase (&self->nodes, &node->item);
-            mb_list_item_term (&node->item);
             mb_free (node);
+            (void) inserted;
             return -1;
         }
 
@@ -122,6 +143,7 @@ int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
         vn->node_id = node_id;
         mb_list_item_init (&vn->item);
         mb_ring_insert_vnode_sorted (self, vn);
+        inserted++;
     }
 
     return 0;
