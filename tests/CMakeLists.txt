@@ -77,6 +77,23 @@ foreach(TEST_SRC ${MB_TEST_SOURCES})
         ENVIRONMENT "ASAN_OPTIONS=allocator_may_return_null=1:detect_leaks=1;UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
 endforeach()
 
+# Tests that intentionally trigger allocation-size OOM paths (test_msg,
+# test_slab, test_pool) inflate ASan's quarantine and shadow memory; when
+# run in parallel with the rest of the suite under ctest -j, the inflated
+# virtual-address pressure causes unrelated tests to fail their first
+# mb_socket/mb_bind calls with no available address space, producing
+# spurious Subprocess aborted results. Force these to run serially.
+set(MB_OOM_TEST_NAMES
+    test_msg
+    test_slab
+    test_pool
+)
+foreach(OOM_TEST ${MB_OOM_TEST_NAMES})
+    if(TARGET ${OOM_TEST})
+        set_tests_properties(${OOM_TEST} PROPERTIES RUN_SERIAL TRUE)
+    endif()
+endforeach()
+
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure)
 
 option(MB_BUILD_FUZZ "Build fuzz testers" OFF)
