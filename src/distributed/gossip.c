@@ -185,9 +185,18 @@ void mb_gossip_tick (struct mb_gossip *self)
     int dead_ms = self->config.dead_timeout_ms > 0 ?
         self->config.dead_timeout_ms : MB_GOSSIP_DEFAULT_INTERVAL_MS * 10;
 
+    /* Snapshot of state transitions to deliver to the user callback. The
+       callback runs with the gossip lock RELEASED so the user may call
+       back into mb_gossip_remove_node / mb_gossip_add_node from the
+       callback without deadlocking. We therefore must snapshot enough
+       information that the callback never dereferences the live
+       mb_gossip_node: a concurrent remove could otherwise free the
+       node we are about to hand to the user (use-after-free). */
     struct {
-        struct mb_gossip_node *node;
+        uint32_t node_id;
+        char addr[MB_GOSSIP_ADDR_LEN];
         enum mb_gossip_node_state old_state;
+        enum mb_gossip_node_state new_state;
     } changes[MB_GOSSIP_MAX_NODES];
     int nchanges = 0;
 
@@ -214,8 +223,11 @@ void mb_gossip_tick (struct mb_gossip *self)
         }
 
         if (old_state != node->state && nchanges < MB_GOSSIP_MAX_NODES) {
-            changes[nchanges].node = node;
+            changes[nchanges].node_id = node->node_id;
+            memcpy (changes[nchanges].addr, node->addr,
+                MB_GOSSIP_ADDR_LEN);
             changes[nchanges].old_state = old_state;
+            changes[nchanges].new_state = node->state;
             nchanges++;
         }
     }
@@ -228,7 +240,8 @@ void mb_gossip_tick (struct mb_gossip *self)
     if (cb) {
         int i;
         for (i = 0; i < nchanges; i++) {
-            cb (cb_ctx, changes[i].node, changes[i].old_state);
+            cb (cb_ctx, changes[i].node_id, changes[i].addr,
+                changes[i].old_state, changes[i].new_state);
         }
     }
 }

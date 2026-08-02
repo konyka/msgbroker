@@ -37,8 +37,9 @@ struct mb_gossip_config {
     int dead_timeout_ms;
 };
 
-typedef void (*mb_gossip_on_change)(void *ctx, struct mb_gossip_node *node,
-    enum mb_gossip_node_state old_state);
+typedef void (*mb_gossip_on_change)(void *ctx, uint32_t node_id,
+    const char *addr, enum mb_gossip_node_state old_state,
+    enum mb_gossip_node_state new_state);
 
 struct mb_gossip {
     struct mb_gossip_config config;
