@@ -96,10 +96,12 @@ static void test_gossip_basic (void)
 
 static int g_gossip_changes = 0;
 
-static void test_gossip_callback (void *ctx, struct mb_gossip_node *node,
-    enum mb_gossip_node_state old_state)
+static void test_gossip_callback (void *ctx, uint32_t node_id,
+    const char *addr, enum mb_gossip_node_state old_state,
+    enum mb_gossip_node_state new_state)
 {
-    (void) ctx; (void) node; (void) old_state;
+    (void) ctx; (void) node_id; (void) addr; (void) old_state;
+    (void) new_state;
     g_gossip_changes++;
 }
 
