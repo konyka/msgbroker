@@ -38,6 +38,7 @@ set(MB_TEST_SOURCES
     unit/test_protocols.c
     unit/test_distributed.c
     unit/test_strerror.c
+    unit/test_errno_per_thread.c
     unit/test_sendmsg.c
     unit/test_cmsg.c
     unit/test_coro_io.c

@@ -33,4 +33,17 @@
 #define mb_cacheline_align
 #endif
 
+/*  Per-thread storage keyword. Used for the mb_err_ctx slot so that
+ *  mb_errno() returns the value that the calling thread last observed
+ *  rather than whatever some other thread most recently wrote. The
+ *  doxygen for mb_errno() in mb.h documents thread-safe semantics;
+ *  the implementation now matches. */
+#if defined(__GNUC__) || defined(__clang__)
+#define mb_thread_local __thread
+#elif defined(_MSC_VER)
+#define mb_thread_local __declspec(thread)
+#else
+#define mb_thread_local
+#endif
+
 #endif

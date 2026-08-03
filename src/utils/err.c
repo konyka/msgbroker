@@ -10,7 +10,7 @@
 #include "win.h"
 #endif
 
-static int mb_err_ctx = 0;
+static mb_thread_local int mb_err_ctx = 0;
 
 int mb_err_errno (void)
 {
