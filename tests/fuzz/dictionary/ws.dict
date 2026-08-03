@@ -1,0 +1,84 @@
+# WebSocket protocol dictionary (libFuzzer)
+#
+# Frame layout (RFC 6455):
+#   byte 0:  FIN(1) RSV1-3(3) opcode(4)
+#   byte 1:  MASK(1) payload_len(7)
+#   if payload_len == 126: 2-byte BE extended length follows
+#   if payload_len == 127: 8-byte BE extended length follows
+#   if MASK == 1:          4-byte masking key follows
+#   payload bytes
+#
+# Tokens below bias mutation toward header boundaries, opcode combinations,
+# and length-class boundaries. Embedded NUL bytes are omitted (the libFuzzer
+# dictionary parser does not accept them inside quoted tokens).
+
+# RFC 6455 server-accept magic (Sec-WebSocket-Accept derivation).
+"M258EAFA5-E914-47DA-95CA-5AB5F8A5B5E3"
+
+# Common single-byte header combos used by fuzzer:
+#   FIN set, MASK set, opcode in {text, binary, close, ping, pong}, len=0.
+hdr_fin_text_masked_0="\x81\x80"
+hdr_fin_binary_masked_0="\x82\x80"
+hdr_fin_close_masked_0="\x88\x80"
+hdr_fin_ping_masked_0="\x89\x80"
+hdr_fin_pong_masked_0="\x8A\x80"
+
+# FIN set, MASK set, length-class boundaries.
+hdr_fin_text_len_125="\x81\xFD"
+hdr_fin_text_len_126="\x81\xFE"
+hdr_fin_text_len_127="\x81\xFF"
+
+# Unmasked variants (client-to-server frames MUST be masked; these exercise
+# the parser's tolerance branch).
+hdr_fin_text_unmasked_0="\x81\x01"
+
+# Continuation / fragmented frames (FIN=0).
+hdr_frag_continuation="\x01\x01"
+hdr_frag_first_binary="\x02\x01"
+
+# Reserved opcodes / RSV bits that the parser MUST reject.
+hdr_rsv1_set="\xC1\x80"
+hdr_rsv2_set="\xA1\x80"
+hdr_rsv3_set="\x91\x80"
+hdr_opcode_reserved_3="\x83\x80"
+hdr_opcode_reserved_4="\x84\x80"
+hdr_opcode_reserved_5="\x85\x80"
+hdr_opcode_reserved_6="\x86\x80"
+hdr_opcode_reserved_7="\x87\x80"
+hdr_opcode_invalid_F="\x8F\x80"
+
+# Length-ext-class boundaries (2-byte BE).
+ext_len_125="\x00\x7D"
+ext_len_126="\x00\x7E"
+ext_len_127="\x00\x7F"
+ext_len_65535="\xFF\xFF"
+
+# 8-byte BE length boundaries.
+ext8_len_65536="\x01\x00\x00\x00\x00\x01\x00\x00"
+ext8_len_131071="\x01\x00\x00\x00\x00\x01\xFF\xFF"
+ext8_len_131072="\x01\x00\x00\x00\x00\x02\x00\x00"
+ext8_len_200000="\x01\x00\x00\x00\x00\x03\x0D\x40"
+
+# Common masking-key values that often catch unmask/copy bugs.
+mask_msb="\xFF\xFF\xFF\xFF"
+mask_pattern="\xAA\x55\xAA\x55"
+mask_pattern2="\x55\xAA\x55\xAA"
+
+# Common close-status codes (2-byte BE) sent in the first 2 payload bytes.
+close_normal="\x03\xE8"
+close_going_away="\x03\xE9"
+close_protocol_error="\x03\xEA"
+close_too_big="\x03\xF1"
+close_unexpected="\x03\xF3"
+
+# ASCII / printable payloads likely to exercise payload-length paths.
+"GET"
+"HTTP/1.1"
+"Upgrade"
+"websocket"
+"Sec-WebSocket-Key"
+"Sec-WebSocket-Accept"
+
+# High-entropy filler patterns.
+all_one="\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+binary_pattern="\xAA\x55\xAA\x55\xAA\x55\xAA\x55"

@@ -1,0 +1,68 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libfuzzer:
+    name: ${{ matrix.fuzzer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzzer:
+          - fuzz_sipc
+          - fuzz_ws_frame
+          - fuzz_msgqueue
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y liburing-dev clang
+
+      - name: Configure (fuzz)
+        env:
+          CC: clang
+          CXX: clang++
+          CFLAGS: -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g
+          CXXFLAGS: -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g
+          LDFLAGS: -fsanitize=address
+        run: >
+          cmake -B build-fuzz
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DMB_BUILD_EXAMPLES=OFF
+          -DMB_BUILD_PERF=OFF
+          -DMB_BUILD_TESTS=OFF
+          -DMB_BUILD_FUZZ=ON
+
+      - name: Build fuzzer objects
+        run: cmake --build build-fuzz --target ${{ matrix.fuzzer }}
+
+      - name: Resolve protocol dictionary
+        id: dict
+        run: |
+          case "${{ matrix.fuzzer }}" in
+            fuzz_sipc)      echo "dict=tests/fuzz/dictionary/sipc.dict"     >> "$GITHUB_OUTPUT" ;;
+            fuzz_ws_frame)  echo "dict=tests/fuzz/dictionary/ws.dict"       >> "$GITHUB_OUTPUT" ;;
+            fuzz_msgqueue)  echo "dict=tests/fuzz/dictionary/msgqueue.dict" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown fuzzer ${{ matrix.fuzzer }}"; exit 1 ;;
+          esac
+
+      - name: Run fuzzer (60s)
+        run: >
+          ./build-fuzz/tests/fuzz/${{ matrix.fuzzer }}
+          -max_total_time=60
+          -dict=${{ steps.dict.outputs.dict }}
+          tests/fuzz/corpus/${{ matrix.fuzzer }}

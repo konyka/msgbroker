@@ -1,0 +1,38 @@
+# SIPC protocol dictionary (libFuzzer)
+#
+# SIPC frames are a 4-byte big-endian body length header followed by `body`
+# bytes. Body lengths in (0, 65536] are accepted; everything else is dropped.
+# Tokens below help libFuzzer concentrate mutation on header boundaries and
+# around the size limits. Note: libFuzzer's dictionary parser does not accept
+# embedded NUL bytes inside quoted tokens, so zero-content variants are
+# omitted (random mutation will reach them quickly).
+
+# Project magic token used as a recognizable payload body.
+"MMSGB"
+
+# Body-length header boundaries. Zero body is invalid (parser-rejected);
+# these cover the rest of the meaningful range up to the 64 KiB cap.
+hdr_4="\x01\x00\x00\x04"
+hdr_64="\x01\x00\x00\x40"
+hdr_255="\x01\x00\x00\xFF"
+hdr_256="\x01\x00\x01\x00"
+hdr_1024="\x01\x00\x04\x00"
+hdr_65535="\x01\x00\xFF\xFF"
+hdr_65536="\x01\x01\x00\x00"
+
+# Just-over-the-limit body lengths (rejected by the parser).
+hdr_overlimit_small="\x01\x01\x00\x01"
+hdr_overlimit_large="\x7F\xFF\xFF\xFF"
+hdr_max_u32="\xFF\xFF\xFF\xFF"
+
+# Common SP-protocol payload lead bytes (msg type nibbles / flags).
+sp_lead_pub="\x40"
+sp_lead_push="\x60"
+sp_lead_req="\x80"
+sp_lead_rep="\xA0"
+sp_lead_surveyor="\xC0"
+sp_lead_respondent="\xE0"
+
+# High-entropy filler patterns.
+ascii_hello="hello"
+binary_pattern="\xAA\x55\xAA\x55\xAA\x55\xAA\x55"

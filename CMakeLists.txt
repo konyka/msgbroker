@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(msgbroker VERSION 0.2.0 LANGUAGES C)
+project(msgbroker VERSION 0.2.0 LANGUAGES C CXX)
 
 set(MB_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(MB_VERSION_MINOR ${PROJECT_VERSION_MINOR})
@@ -229,6 +229,9 @@ install(FILES ${CMAKE_BINARY_DIR}/msgbroker.pc
 
 if(MB_BUILD_TESTS)
     enable_testing()
+    add_subdirectory(tests)
+elseif(MB_BUILD_FUZZ)
+    # Fuzz targets live in tests/CMakeLists.txt but don't require MB_BUILD_TESTS.
     add_subdirectory(tests)
 endif()
 

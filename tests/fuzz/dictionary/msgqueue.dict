@@ -1,0 +1,43 @@
+# msgqueue (inproc transport) protocol dictionary (libFuzzer)
+#
+# The msgqueue fuzzer feeds raw bytes through `mb_msg_init_data` and
+# `mb_msgqueue_push` in a tight loop. There is no wire header — tokens below
+# steer mutation toward payload boundaries and the iteration cap (256).
+# Embedded NUL bytes are omitted (the libFuzzer dictionary parser does not
+# accept them inside quoted tokens).
+
+# Project magic token used as a recognizable prefix.
+"MMSGB"
+
+# Boundary sizes around MB_MSGQUEUE_GRANULARITY (64) and the fuzzer's
+# per-iteration length cap (64).
+size_63="\x3F"
+size_64="\x40"
+size_65="\x41"
+size_127="\x7F"
+size_128="\x80"
+size_255="\xFF"
+
+# Iteration-count boundaries (fuzzer loops up to 256 times).
+iter_1="\x01"
+iter_64="\x40"
+iter_128="\x80"
+iter_255="\xFF"
+
+# Common high-entropy patterns used by parsers.
+ascii_hello="hello"
+ascii_msgbroker="msgbroker"
+binary_pattern="\xAA\x55\xAA\x55\xAA\x55\xAA\x55"
+binary_alt="\x55\xAA\x55\xAA\x55\xAA\x55\xAA"
+
+# All-one block that exercises zero-copy / batching paths.
+all_one="\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+
+# SP-protocol-style opcodes (echo of sipc.dict) — even though msgqueue itself
+# has no wire header, payloads originate from the SP layers above.
+sp_lead_pub="\x40"
+sp_lead_push="\x60"
+sp_lead_req="\x80"
+sp_lead_rep="\xA0"
+sp_lead_surveyor="\xC0"
+sp_lead_respondent="\xE0"
