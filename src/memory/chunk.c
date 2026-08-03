@@ -40,13 +40,35 @@ int mb_chunk_alloc (size_t size, void **result)
 int mb_chunk_realloc (size_t size, void **chunk)
 {
     struct mb_chunk_hdr *hdr = MB_CHUNK_FROM_DATA (*chunk);
+    struct mb_chunk_hdr *new_hdr;
     size_t hdr_size;
+    size_t payload;
 
     if (hdr->offset > SIZE_MAX - MB_CHUNK_HDR_SIZE)
         return -ENOMEM;
     hdr_size = MB_CHUNK_HDR_SIZE + hdr->offset;
     if (size > SIZE_MAX - hdr_size)
         return -ENOMEM;
+    payload = hdr->size - hdr->offset;
+
+    /*  When refcount > 1 a realloc that moves the underlying buffer
+     *  would silently invalidate every other refcount holder. Copy
+     *  into a fresh allocation instead so the caller's pointer is
+     *  updated but co-holders keep their original buffer. */
+    if (__atomic_load_n (&hdr->refcount, __ATOMIC_ACQUIRE) > 1) {
+        new_hdr = (struct mb_chunk_hdr *) mb_alloc (hdr_size + size);
+        if (!new_hdr)
+            return -ENOMEM;
+        memcpy (new_hdr->data, hdr->data, payload);
+        new_hdr->refcount = 1;
+        new_hdr->size = size;
+        new_hdr->offset = hdr->offset;
+        *chunk = new_hdr->data + new_hdr->offset;
+        /* Caller's effective refcount drops by 1 (the original is
+         * still owned by the remaining holders). */
+        (void) __atomic_sub_fetch (&hdr->refcount, 1, __ATOMIC_ACQ_REL);
+        return 0;
+    }
 
     hdr = (struct mb_chunk_hdr *) mb_realloc (hdr, hdr_size + size);
     if (!hdr)

@@ -15,6 +15,7 @@ set(MB_TEST_SOURCES
     unit/test_trie.c
     unit/test_wire.c
     unit/test_chunk.c
+    unit/test_chunk_realloc_refcount.c
     unit/test_msg.c
     unit/test_slab.c
     unit/test_arena.c
