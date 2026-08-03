@@ -67,7 +67,7 @@ int mb_threadpool_init (struct mb_threadpool *self, int nworkers)
             int j;
             for (j = 0; j < i; j++) {
                 mb_atomic_store (&threads[j].running, 0);
-                mb_mutex_term (&threads[j].wake_cond);
+                mb_condvar_term (&threads[j].wake_cond);
                 mb_thread_join (&threads[j].thread);
                 mb_thread_term (&threads[j].thread);
                 mb_mutex_term (&threads[j].local_lock);
