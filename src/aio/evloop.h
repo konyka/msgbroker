@@ -45,6 +45,7 @@ struct mb_evloop {
     struct {
         struct io_uring ring;
         int ring_fd;
+        unsigned sq_size;
         struct mb_evloop_entry entries[MB_EVLOOP_MAX_EVENTS];
     } iouring;
 #elif defined MB_HAVE_KQUEUE
@@ -56,6 +57,7 @@ struct mb_evloop {
 
 int mb_evloop_init (struct mb_evloop *self);
 void mb_evloop_term (struct mb_evloop *self);
+void mb_evloop_set_sq_size (struct mb_evloop *self, unsigned entries);
 int mb_evloop_add (struct mb_evloop *self, int fd, int events,
     struct mb_evloop_cb *cb);
 int mb_evloop_modify (struct mb_evloop *self, int fd, int events,

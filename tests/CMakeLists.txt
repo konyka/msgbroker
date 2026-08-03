@@ -24,6 +24,7 @@ set(MB_TEST_SOURCES
     unit/test_fsm.c
     unit/test_fsm_term_race.c
     unit/test_evloop.c
+    unit/test_evloop_iouring_sq.c
     unit/test_timer.c
     unit/test_threadpool.c
     unit/test_threadpool_wakeup.c

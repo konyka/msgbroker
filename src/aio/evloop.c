@@ -70,12 +70,26 @@ const char *mb_evloop_backend_name (struct mb_evloop *self)
 
 static int mb_evloop_init_iouring (struct mb_evloop *self)
 {
-    int rc = io_uring_queue_init (64, &self->iouring.ring, 0);
+    /*  Caller-configured SQ size defaults to 0 (liburing picks a sane
+     *  default). Higher workloads should call mb_evloop_set_sq_size
+     *  before init. */
+    unsigned entries = self->iouring.sq_size ? self->iouring.sq_size : 64;
+    int rc = io_uring_queue_init (entries, &self->iouring.ring, 0);
     if (rc < 0)
         return rc;
     self->iouring.ring_fd = self->iouring.ring.ring_fd;
     self->backend = MB_EVLOOP_BACKEND_IOURING;
     return 0;
+}
+
+void mb_evloop_set_sq_size (struct mb_evloop *self, unsigned entries)
+{
+#if defined __linux__
+    self->iouring.sq_size = entries;
+#else
+    (void) self;
+    (void) entries;
+#endif
 }
 
 static int mb_evloop_init_epoll (struct mb_evloop *self)
