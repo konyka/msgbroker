@@ -10,10 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **CI sanitizer jobs** — GitHub Actions now runs the full test suite under AddressSanitizer (+LeakSanitizer) and UndefinedBehaviorSanitizer on Linux. These previously-uncovered failure modes (allocation-size-too-big aborts, leaks, UB) are now caught on every push and pull request.
 - **CI C-standard matrix** — A dedicated `standards` job now builds and tests the library with `MB_C_STANDARD` set to 99, 11, 17, and 23, validating the README's C99-through-C23 compatibility claim.
+- **Threadpool efficient submit** — Workers now sleep on a condition variable instead of `nanosleep(1ms)`. The submit path signals the condvar so a newly submitted task wakes a sleeping worker immediately rather than waiting up to 1 ms. Round-robin scheduling moves from a process-global static counter to an `mb_threadpool` struct member, so multiple independent pool instances each maintain their own distribution state.
+- **Hash auto-rehash on insert** — `mb_hash_put` and `mb_hash_put2` now call `mb_hash_rehash` when `count` exceeds `nbuckets`, doubling the bucket count. This keeps the average chain length bounded and prevents the O(n) lookup degradation that followed from a long static chain after many inserts without removals. A `test_hash_rehash` case verifies the table is findable after a rehash.
+- **io_uring submission queue size configurable** — `io_uring_queue_init` was hardcoded to 64 SQ entries. Workloads that submit many async operations could exhaust the queue and stall. `mb_evloop_set_sq_size()` (in `src/aio/evloop.h`) lets callers configure the queue depth before `mb_evloop_init`; 0 restores the 64-entry default. On non-Linux backends the setter is a no-op.
 
 ### Changed
 
 - **Deterministic OOM test behaviour under ASan** — CTest now sets `ASAN_OPTIONS=allocator_may_return_null=1` for every test. AddressSanitizer's default (`allocator_may_return_null=0`) aborts on absurdly large allocations instead of returning `NULL` the way production `malloc` does; the OOM-path tests (`test_hash`, `test_msg`, `test_arena`, `test_timeout::test_send_oom_large_body`) probe the library's `NULL`-return handling and were therefore aborting under ASan. The option makes ASan match production semantics. It is ignored on non-ASan builds, so plain Debug/Release runs are unaffected.
+- **Chunk refcount-aware realloc** — `mb_chunk_realloc` now checks the refcount of the chunk being resized. If it is greater than 1 (shared), the function makes a full copy of the data into the new allocation instead of calling `realloc` directly. This prevents other in-flight references to the old buffer from becoming dangling pointers, which could otherwise produce use-after-free or double-free faults.
+- **mb_errno thread-local as documented** — `mb_errno` was implemented as a global variable instead of the thread-local storage the documentation promised. It is now `thread_local int mb_errno` (C11) / `_Thread_local int mb_errno` (C99), matching the documented behaviour that each thread sees its own errno without mutex overhead.
 
 ### Fixed
 
@@ -39,6 +44,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Discovery untrusted packet data** — `recvfrom` packet `addr` field was not guaranteed null-terminated. Now explicitly null-terminated before passing to the callback.
 - **WebSocket SHA-1 uninitialized digest** — `mb_sha1` in `bws.c` returned early on allocation failure without writing to the output buffer, leaving the handshake hash uninitialized. Now returns `-1` on failure; the caller checks the return value.
 - **Protocol pipe data double-free risk** — 14 protocol `_rm` handlers freed per-pipe data but did not clear the pipe's data pointer. A double-removal would dereference a dangling pointer. All handlers now call `mb_pipe_setdata(pipe, NULL)` after freeing.
+- **mb_close NULL guard** — `mb_close` now checks `g_self.socks` before dereferencing it and returns `-EBADF` instead of SIGSEGV when called on an invalid socket.
+- **mb_term idempotent and lock-safe** — `mb_term` could race with concurrent `mb_term` calls or with library-initiated termination in worker threads. It now acquires the global init lock, checks an atomic `g_terminating` flag, and returns immediately if already shutting down; the cleanup path sets that flag and is itself idempotent.
+- **aio fsm raise events that race ctx_term** — `mb_aio_ctx_term` cleared the `ctx->fsm` pointer before draining in-flight events, so an in-flight `mb_aio_fsm_raise` could write to freed memory. The terminate sequence now waits for all active events to drain before clearing the pointer.
+- **gossip worker wakeup on stop** — `mb_gossip_stop` woke the gossip worker with `usleep(10000)` polling, causing up to 10 ms of unnecessary delay before the worker noticed the stop signal and exited its loop. The stop path now signals the same condition variable the worker waits on, so the worker wakes immediately.
+- **Slab magic header for free validation** — Each slab object is now stamped with a magic constant (`MB_SLAB_MAGIC`) and its allocation size at the start of the allocation. `mb_slab_free` validates both fields before freeing; a mismatch (corruption or double-free) triggers `abort()`. This mirrors the `mb_arena` guard-page pattern.
+- **Build hidden symbol visibility** — Non-public symbols in the shared library are now hidden by default (`__attribute__((visibility("hidden")))`) on GCC and Clang. Only the explicitly `MB_EXPORT`-tagged public API surface is exposed. A new link-time test (`tests/unit/test_symbol_visibility`) asserts that a hardcoded list of internal symbols cannot be dlsym'd from the loaded library.
 
 ### Tests
 
