@@ -24,6 +24,7 @@ set(MB_TEST_SOURCES
     unit/test_slab_validate_free.c
     unit/test_arena.c
     unit/test_pool.c
+    unit/test_pool_overflow.c
     unit/test_fsm.c
     unit/test_fsm_term_race.c
     unit/test_evloop.c
