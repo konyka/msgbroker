@@ -44,6 +44,7 @@ set(MB_TEST_SOURCES
     unit/test_reqrep.c
     unit/test_protocols.c
     unit/test_distributed.c
+    unit/test_ring_property.c
     unit/test_gossip_shutdown_latency.c
     unit/test_strerror.c
     unit/test_errno_per_thread.c
@@ -59,6 +60,7 @@ set(MB_TEST_SOURCES
     unit/test_reconnect.c
     unit/test_reconnect_disc.c
     unit/test_pubsub_filter.c
+    unit/test_pubsub_hwm.c
     unit/test_stats.c
 )
 
@@ -108,15 +110,24 @@ add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure)
 option(MB_BUILD_FUZZ "Build fuzz testers" OFF)
 if(MB_BUILD_FUZZ)
     set(MB_FUZZ_SOURCES
-        fuzz/fuzz_sipc.c
-        fuzz/fuzz_ws_frame.c
-        fuzz/fuzz_msgqueue.c
+        fuzz/fuzz_sipc.cpp
+        fuzz/fuzz_ws_frame.cpp
+        fuzz/fuzz_msgqueue.cpp
     )
     foreach(FUZZ_SRC ${MB_FUZZ_SOURCES})
         get_filename_component(FUZZ_NAME ${FUZZ_SRC} NAME_WE)
         add_executable(${FUZZ_NAME} ${FUZZ_SRC})
+        # Fuzzers use libFuzzer's FuzzedDataProvider, which is C++. Use clang++.
+        set_source_files_properties(${FUZZ_SRC} PROPERTIES LANGUAGE CXX)
         target_link_libraries(${FUZZ_NAME} PRIVATE msgbroker_static msgbroker_headers)
         target_compile_options(${FUZZ_NAME} PRIVATE -Wall -Wextra -Wno-error)
+        # Link-time libFuzzer + AddressSanitizer entry points. The compile-time
+        # flags (fuzzer-no-link + address) are passed through CFLAGS/CXXFLAGS
+        # by the fuzzing workflow; CMake propagates them here automatically.
+        if(NOT MB_FUZZ_LINK_FLAGS)
+            set(MB_FUZZ_LINK_FLAGS "-fsanitize=fuzzer,address")
+        endif()
+        target_link_options(${FUZZ_NAME} PRIVATE ${MB_FUZZ_LINK_FLAGS})
         if(UNIX)
             target_link_libraries(${FUZZ_NAME} PRIVATE pthread)
         endif()

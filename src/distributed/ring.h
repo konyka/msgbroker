@@ -1,8 +1,6 @@
 #ifndef MB_DISTRIBUTED_RING_H_INCLUDED
 #define MB_DISTRIBUTED_RING_H_INCLUDED
 
-#include "../utils/list.h"
-
 #include <stdint.h>
 #include <stddef.h>
 
@@ -11,20 +9,21 @@
 struct mb_ring_vnode {
     uint32_t hash;
     uint32_t node_id;
-    struct mb_list_item item;
 };
 
 struct mb_ring {
-    struct mb_list nodes;
-    struct mb_list vnodes;
+    struct mb_ring_node *nodes;
+    size_t node_count;
+    size_t node_cap;
+    struct mb_ring_vnode *vnodes;
+    size_t vnode_count;
+    size_t vnode_cap;
     int virtual_count;
-    uint32_t _padding;
 };
 
 struct mb_ring_node {
     uint32_t node_id;
     char addr[64];
-    struct mb_list_item item;
 };
 
 void mb_ring_init (struct mb_ring *self, int virtual_count);

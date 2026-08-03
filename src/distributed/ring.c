@@ -1,7 +1,5 @@
 #include "ring.h"
 #include "../utils/alloc.h"
-#include "../utils/list.h"
-#include "../utils/cont.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -33,53 +31,70 @@ static uint32_t mb_ring_hash (const void *data, size_t len)
 
 void mb_ring_init (struct mb_ring *self, int virtual_count)
 {
-    mb_list_init (&self->nodes);
-    mb_list_init (&self->vnodes);
+    self->nodes = NULL;
+    self->node_count = 0;
+    self->node_cap = 0;
+    self->vnodes = NULL;
+    self->vnode_count = 0;
+    self->vnode_cap = 0;
     self->virtual_count = virtual_count > 0 ? virtual_count :
         MB_RING_VIRTUAL_NODES;
 }
 
 void mb_ring_term (struct mb_ring *self)
 {
-    struct mb_list_item *it;
-    struct mb_list_item *next;
-
-    it = mb_list_begin (&self->vnodes);
-    while (it != mb_list_end (&self->vnodes)) {
-        struct mb_ring_vnode *vn = mb_cont (it, struct mb_ring_vnode, item);
-        next = mb_list_next (&self->vnodes, it);
-        mb_list_erase (&self->vnodes, &vn->item);
-        mb_free (vn);
-        it = next;
-    }
-
-    it = mb_list_begin (&self->nodes);
-    while (it != mb_list_end (&self->nodes)) {
-        struct mb_ring_node *node = mb_cont (it, struct mb_ring_node, item);
-        next = mb_list_next (&self->nodes, it);
-        mb_list_erase (&self->nodes, &node->item);
-        mb_free (node);
-        it = next;
-    }
-
-    mb_list_term (&self->vnodes);
-    mb_list_term (&self->nodes);
+    if (self->vnodes)
+        mb_free (self->vnodes);
+    if (self->nodes)
+        mb_free (self->nodes);
+    self->vnodes = NULL;
+    self->vnode_count = 0;
+    self->vnode_cap = 0;
+    self->nodes = NULL;
+    self->node_count = 0;
+    self->node_cap = 0;
 }
 
-static void mb_ring_insert_vnode_sorted (struct mb_ring *self,
-    struct mb_ring_vnode *vn)
+static int mb_ring_grow_nodes (struct mb_ring *self)
 {
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->vnodes);
-         it != mb_list_end (&self->vnodes);
-         it = mb_list_next (&self->vnodes, it)) {
-        struct mb_ring_vnode *existing = mb_cont (it, struct mb_ring_vnode, item);
-        if (vn->hash <= existing->hash) {
-            mb_list_insert (&self->vnodes, &vn->item, it);
-            return;
-        }
-    }
-    mb_list_insert (&self->vnodes, &vn->item, mb_list_end (&self->vnodes));
+    if (self->node_count < self->node_cap)
+        return 0;
+    size_t new_cap = self->node_cap ? self->node_cap * 2 : 4;
+    struct mb_ring_node *grown = (struct mb_ring_node *)
+        mb_realloc (self->nodes, new_cap * sizeof (*grown));
+    if (!grown)
+        return -1;
+    self->nodes = grown;
+    self->node_cap = new_cap;
+    return 0;
+}
+
+static int mb_ring_grow_vnodes (struct mb_ring *self)
+{
+    if (self->vnode_count < self->vnode_cap)
+        return 0;
+    size_t new_cap = self->vnode_cap ? self->vnode_cap * 2 : 16;
+    struct mb_ring_vnode *grown = (struct mb_ring_vnode *)
+        mb_realloc (self->vnodes, new_cap * sizeof (*grown));
+    if (!grown)
+        return -1;
+    self->vnodes = grown;
+    self->vnode_cap = new_cap;
+    return 0;
+}
+
+/* Insert vn into vnodes[] keeping it sorted by hash (ascending). */
+static void mb_ring_insert_vnode_sorted (struct mb_ring *self,
+    struct mb_ring_vnode vn)
+{
+    size_t i = 0;
+    while (i < self->vnode_count && self->vnodes[i].hash < vn.hash)
+        i++;
+    if (i < self->vnode_count)
+        memmove (&self->vnodes[i + 1], &self->vnodes[i],
+            (self->vnode_count - i) * sizeof (*self->vnodes));
+    self->vnodes[i] = vn;
+    self->vnode_count++;
 }
 
 int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
@@ -88,62 +103,41 @@ int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
        skew the consistent-hash distribution. Discovery can deliver the
        same node_id multiple times on retransmit; callers must therefore
        tolerate -EEXIST. */
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->nodes);
-         it != mb_list_end (&self->nodes);
-         it = mb_list_next (&self->nodes, it)) {
-        struct mb_ring_node *existing = mb_cont (it, struct mb_ring_node,
-            item);
-        if (existing->node_id == node_id)
+    for (size_t i = 0; i < self->node_count; i++) {
+        if (self->nodes[i].node_id == node_id)
             return -EEXIST;
     }
 
-    struct mb_ring_node *node = (struct mb_ring_node *)
-        mb_alloc (sizeof (struct mb_ring_node));
-    if (!node)
+    if (mb_ring_grow_nodes (self) != 0)
         return -1;
 
+    struct mb_ring_node *node = &self->nodes[self->node_count++];
     node->node_id = node_id;
     strncpy (node->addr, addr, sizeof (node->addr) - 1);
     node->addr[sizeof (node->addr) - 1] = '\0';
-    mb_list_item_init (&node->item);
-    mb_list_insert (&self->nodes, &node->item, mb_list_end (&self->nodes));
 
-    int inserted = 0;
     for (int i = 0; i < self->virtual_count; i++) {
-        struct mb_ring_vnode *vn = (struct mb_ring_vnode *)
-            mb_alloc (sizeof (struct mb_ring_vnode));
-        if (!vn) {
-            /* Unwind only the vnodes this call already inserted; the
-               node itself is torn down last. Each vn was added to
-               self->vnodes by mb_ring_insert_vnode_sorted so we erase
-               via the list (which also calls mb_list_item_term through
-               its cont invariant) and then free. */
-            struct mb_list_item *vi = mb_list_begin (&self->vnodes);
-            while (vi != mb_list_end (&self->vnodes)) {
-                struct mb_ring_vnode *v = mb_cont (vi, struct mb_ring_vnode,
-                    item);
-                struct mb_list_item *next = mb_list_next (&self->vnodes,
-                    vi);
-                if (v->node_id == node_id) {
-                    mb_list_erase (&self->vnodes, &v->item);
-                    mb_free (v);
-                }
-                vi = next;
+        if (mb_ring_grow_vnodes (self) != 0) {
+            size_t write = 0;
+            for (size_t j = 0; j < self->vnode_count; j++) {
+                if (self->vnodes[j].node_id == node_id)
+                    continue;
+                if (write != j)
+                    self->vnodes[write] = self->vnodes[j];
+                write++;
             }
-            mb_list_erase (&self->nodes, &node->item);
-            mb_free (node);
-            (void) inserted;
+            self->vnode_count = write;
+
+            self->node_count--;
             return -1;
         }
 
+        struct mb_ring_vnode vn;
         char buf[128];
         int slen = snprintf (buf, sizeof (buf), "%u:%d", node_id, i);
-        vn->hash = mb_ring_hash (buf, (size_t) slen);
-        vn->node_id = node_id;
-        mb_list_item_init (&vn->item);
+        vn.hash = mb_ring_hash (buf, (size_t) slen);
+        vn.node_id = node_id;
         mb_ring_insert_vnode_sorted (self, vn);
-        inserted++;
     }
 
     return 0;
@@ -151,27 +145,28 @@ int mb_ring_add (struct mb_ring *self, uint32_t node_id, const char *addr)
 
 int mb_ring_remove (struct mb_ring *self, uint32_t node_id)
 {
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->nodes);
-         it != mb_list_end (&self->nodes);
-         it = mb_list_next (&self->nodes, it)) {
-        struct mb_ring_node *node = mb_cont (it, struct mb_ring_node, item);
-        if (node->node_id == node_id) {
-            mb_list_erase (&self->nodes, &node->item);
-            mb_free (node);
+    /* Drop the node entry if present. */
+    for (size_t i = 0; i < self->node_count; i++) {
+        if (self->nodes[i].node_id == node_id) {
+            if (i + 1 < self->node_count)
+                memmove (&self->nodes[i], &self->nodes[i + 1],
+                    (self->node_count - i - 1) * sizeof (*self->nodes));
+            self->node_count--;
             break;
         }
     }
 
-    it = mb_list_begin (&self->vnodes);
-    while (it != mb_list_end (&self->vnodes)) {
-        struct mb_ring_vnode *vn = mb_cont (it, struct mb_ring_vnode, item);
-        it = mb_list_next (&self->vnodes, it);
-        if (vn->node_id == node_id) {
-            mb_list_erase (&self->vnodes, &vn->item);
-            mb_free (vn);
-        }
+    /* Compact out every vnode belonging to node_id; the array stays
+       sorted because every removal only shrinks the run. */
+    size_t write = 0;
+    for (size_t j = 0; j < self->vnode_count; j++) {
+        if (self->vnodes[j].node_id == node_id)
+            continue;
+        if (write != j)
+            self->vnodes[write] = self->vnodes[j];
+        write++;
     }
+    self->vnode_count = write;
 
     return 0;
 }
@@ -179,46 +174,74 @@ int mb_ring_remove (struct mb_ring *self, uint32_t node_id)
 uint32_t mb_ring_lookup (struct mb_ring *self, const void *key,
     size_t keylen)
 {
-    if (mb_list_empty (&self->vnodes))
+    if (self->vnode_count == 0)
         return 0;
 
     uint32_t h = mb_ring_hash (key, keylen);
 
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->vnodes);
-         it != mb_list_end (&self->vnodes);
-         it = mb_list_next (&self->vnodes, it)) {
-        struct mb_ring_vnode *vn = mb_cont (it, struct mb_ring_vnode, item);
-        if (h <= vn->hash)
-            return vn->node_id;
+    /* Lower-bound: first vnode whose hash >= h.  Standard binary
+       search on a sorted array; we can't use libc bsearch() because
+       we need the *insertion index*, not just an equality hit. */
+    size_t lo = 0;
+    size_t hi = self->vnode_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (self->vnodes[mid].hash < h)
+            lo = mid + 1;
+        else
+            hi = mid;
     }
-
-    struct mb_ring_vnode *first =
-        mb_cont (mb_list_begin (&self->vnodes), struct mb_ring_vnode, item);
-    return first->node_id;
+    if (lo == self->vnode_count)
+        lo = 0;     /* wrap around */
+    return self->vnodes[lo].node_id;
 }
 
 uint32_t mb_ring_lookup_n (struct mb_ring *self, const void *key,
     size_t keylen, uint32_t *node_ids, int max_count)
 {
-    uint32_t primary = mb_ring_lookup (self, key, keylen);
-    if (primary == 0 || max_count <= 0)
+    if (max_count <= 0 || self->vnode_count == 0)
         return 0;
 
-    int count = 0;
-    uint32_t prev = 0;
+    uint32_t h = mb_ring_hash (key, keylen);
 
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->vnodes);
-         it != mb_list_end (&self->vnodes);
-         it = mb_list_next (&self->vnodes, it)) {
-        struct mb_ring_vnode *vn = mb_cont (it, struct mb_ring_vnode, item);
-        if (vn->node_id != prev) {
-            node_ids[count++] = vn->node_id;
-            prev = vn->node_id;
+    /* Locate the primary's index via lower-bound binary search. */
+    size_t lo = 0;
+    size_t hi = self->vnode_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (self->vnodes[mid].hash < h)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (lo == self->vnode_count)
+        lo = 0;
+
+    /* Walk the ring starting at the primary, collecting distinct
+       node_ids.  We stop when we either have max_count or have
+       completed one revolution (i.e. reached lo again), whichever
+       comes first.  A node_id is only collected if it hasn't been
+       collected yet on this walk — without that check, a sparsely
+       populated ring would re-emit the primary once the walk
+       crosses a node that wraps back to its hash range. */
+    int count = 0;
+    size_t idx = lo;
+    for (size_t step = 0; step <= self->vnode_count; step++) {
+        if (step == self->vnode_count)
+            break;
+        uint32_t nid = self->vnodes[idx].node_id;
+        int already = 0;
+        for (int k = 0; k < count; k++) {
+            if (node_ids[k] == nid) { already = 1; break; }
+        }
+        if (!already) {
+            node_ids[count++] = nid;
             if (count >= max_count)
                 break;
         }
+        idx++;
+        if (idx == self->vnode_count)
+            idx = 0;
     }
 
     return (uint32_t) count;
@@ -226,12 +249,5 @@ uint32_t mb_ring_lookup_n (struct mb_ring *self, const void *key,
 
 int mb_ring_count (struct mb_ring *self)
 {
-    int count = 0;
-    struct mb_list_item *it;
-    for (it = mb_list_begin (&self->nodes);
-         it != mb_list_end (&self->nodes);
-         it = mb_list_next (&self->nodes, it)) {
-        count++;
-    }
-    return count;
+    return (int) self->node_count;
 }
