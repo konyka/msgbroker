@@ -36,11 +36,12 @@ int main (void)
     /* Free q so we can attempt to free garbage into the freed slot. */
     mb_slab_free (&s, q);
 
-    /* A stack variable masquerading as an object — its magic field is
+    /* A heap allocation masquerading as an object — its magic field is
      * not MB_SLAB_MAGIC. The free must be rejected as a no-op. */
     {
-        volatile unsigned char buf[64] = {0};
-        mb_slab_free (&s, (void *) buf);
+        void *fake = malloc (64);
+        mb_slab_free (&s, fake);
+        free (fake);
     }
 
     /* A wild pointer that we never allocated at all — no magic prefix. */
