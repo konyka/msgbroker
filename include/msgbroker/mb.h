@@ -362,6 +362,15 @@ MB_EXPORT int mb_device (int s1, int s2);
 #define MB_STAT_BYTES_RECEIVED           304
 #define MB_STAT_DROPPED                  305
 
+/*  Per-socket traffic counters (T-STATS). User-payload byte and message
+ *  totals, plus a queue-full tally for sends rejected with -EAGAIN
+ *  because of MB_HWM saturation. Mirrors MB_STAT_MESSAGES_SENT/_RECEIVED
+ *  and MB_STAT_BYTES_SENT/_RECEIVED under explicit, transport-agnostic
+ *  names so callers can probe traffic on any socket type. */
+#define MB_STAT_MSGS_SENT                306
+#define MB_STAT_MSGS_RECEIVED            307
+#define MB_STAT_QUEUE_FULL               308
+
 /*  Protocol statistics. */
 #define MB_STAT_CURRENT_SND_PRIORITY     401
 

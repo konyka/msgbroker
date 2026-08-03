@@ -66,6 +66,9 @@ struct mb_sock {
         uint64_t bytes_sent;
         uint64_t bytes_received;
         uint64_t dropped;
+        uint64_t msgs_sent;
+        uint64_t msgs_received;
+        uint64_t queue_full;
         int current_connections;
         int inprogress_connections;
         int current_snd_priority;

@@ -409,6 +409,9 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         case MB_STAT_BYTES_SENT:
         case MB_STAT_BYTES_RECEIVED:
         case MB_STAT_DROPPED:
+        case MB_STAT_MSGS_SENT:
+        case MB_STAT_MSGS_RECEIVED:
+        case MB_STAT_QUEUE_FULL:
         case MB_STAT_CURRENT_SND_PRIORITY: {
             uint64_t st;
 
@@ -501,6 +504,7 @@ int mb_sock_send (struct mb_sock *self, struct mb_msg *msg)
         if (rc >= 0) {
             self->statistics.messages_sent++;
             self->statistics.bytes_sent += nbytes;
+            self->statistics.msgs_sent++;
         }
     }
     mb_sock_sync_sndfd (self);
@@ -525,6 +529,7 @@ int mb_sock_recv (struct mb_sock *self, struct mb_msg *msg)
     if (rc >= 0) {
         self->statistics.messages_received++;
         self->statistics.bytes_received += mb_chunkref_size (&msg->body);
+        self->statistics.msgs_received++;
     }
     mb_sock_sync_sndfd (self);
     mb_sock_sync_rcvfd (self);
@@ -596,6 +601,8 @@ void mb_sock_stat_increment (struct mb_sock *self, int name, int increment)
         self->statistics.current_ep_errors += increment; break;
     case MB_STAT_DROPPED:
         self->statistics.dropped += (uint64_t) increment; break;
+    case MB_STAT_QUEUE_FULL:
+        self->statistics.queue_full += (uint64_t) increment; break;
     }
 }
 
@@ -616,6 +623,9 @@ uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat)
     case MB_STAT_BYTES_SENT:              return self->statistics.bytes_sent;
     case MB_STAT_BYTES_RECEIVED:          return self->statistics.bytes_received;
     case MB_STAT_DROPPED:                 return self->statistics.dropped;
+    case MB_STAT_MSGS_SENT:               return self->statistics.msgs_sent;
+    case MB_STAT_MSGS_RECEIVED:           return self->statistics.msgs_received;
+    case MB_STAT_QUEUE_FULL:              return self->statistics.queue_full;
     case MB_STAT_CURRENT_SND_PRIORITY:    return (uint64_t)self->statistics.current_snd_priority;
     case MB_STAT_CURRENT_EP_ERRORS:       return (uint64_t)self->statistics.current_ep_errors;
     }
