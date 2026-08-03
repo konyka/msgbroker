@@ -48,6 +48,7 @@ struct mb_sock {
     int reconnect_ivl_max;
     int maxttl;
     int linger;
+    int hwm;
 
     struct mb_ep_options ep_template;
     struct mb_optset *optsets[MB_MAX_TRANSPORT];
@@ -64,6 +65,7 @@ struct mb_sock {
         uint64_t messages_received;
         uint64_t bytes_sent;
         uint64_t bytes_received;
+        uint64_t dropped;
         int current_connections;
         int inprogress_connections;
         int current_snd_priority;

@@ -99,6 +99,7 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
     self->reconnect_ivl_max = 0;
     self->maxttl = 8;
     self->linger = 1000;
+    self->hwm = 0;
 
     self->ep_template.sndprio = 8;
     self->ep_template.rcvprio = 8;
@@ -280,6 +281,13 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         }
         case MB_MAXTTL:           self->maxttl = *(const int *)optval; return 0;
         case MB_LINGER:           self->linger = *(const int *)optval; return 0;
+        case MB_HWM: {
+            int v = *(const int *)optval;
+            if (v < 0)
+                return -EINVAL;
+            self->hwm = v;
+            return 0;
+        }
         }
     }
 
@@ -349,6 +357,7 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         case MB_IPV4ONLY:          val = self->ep_template.ipv4only; have_val = 1; break;
         case MB_MAXTTL:            val = self->maxttl; have_val = 1; break;
         case MB_LINGER:            val = self->linger; have_val = 1; break;
+        case MB_HWM:               val = self->hwm; have_val = 1; break;
         case MB_DOMAIN:            val = self->socktype->domain; have_val = 1; break;
         case MB_PROTOCOL:          val = self->socktype->protocol; have_val = 1; break;
         case MB_SNDFD:
@@ -385,6 +394,7 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
         case MB_STAT_MESSAGES_RECEIVED:
         case MB_STAT_BYTES_SENT:
         case MB_STAT_BYTES_RECEIVED:
+        case MB_STAT_DROPPED:
         case MB_STAT_CURRENT_SND_PRIORITY: {
             uint64_t st;
 
@@ -562,6 +572,8 @@ void mb_sock_stat_increment (struct mb_sock *self, int name, int increment)
         self->statistics.inprogress_connections += increment; break;
     case MB_STAT_CURRENT_EP_ERRORS:
         self->statistics.current_ep_errors += increment; break;
+    case MB_STAT_DROPPED:
+        self->statistics.dropped += (uint64_t) increment; break;
     }
 }
 
@@ -581,6 +593,7 @@ uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat)
     case MB_STAT_MESSAGES_RECEIVED:       return self->statistics.messages_received;
     case MB_STAT_BYTES_SENT:              return self->statistics.bytes_sent;
     case MB_STAT_BYTES_RECEIVED:          return self->statistics.bytes_received;
+    case MB_STAT_DROPPED:                 return self->statistics.dropped;
     case MB_STAT_CURRENT_SND_PRIORITY:    return (uint64_t)self->statistics.current_snd_priority;
     case MB_STAT_CURRENT_EP_ERRORS:       return (uint64_t)self->statistics.current_ep_errors;
     }

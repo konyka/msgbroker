@@ -214,6 +214,7 @@ MB_EXPORT const char *mb_strerror (int errnum);
 #define MB_SOCKET_NAME        15
 #define MB_RCVMAXSIZE         16
 #define MB_MAXTTL             17
+#define MB_HWM                18
 
 /*  Send/recv flags. */
 #define MB_DONTWAIT 1
@@ -359,6 +360,7 @@ MB_EXPORT int mb_device (int s1, int s2);
 #define MB_STAT_MESSAGES_RECEIVED        302
 #define MB_STAT_BYTES_SENT               303
 #define MB_STAT_BYTES_RECEIVED           304
+#define MB_STAT_DROPPED                  305
 
 /*  Protocol statistics. */
 #define MB_STAT_CURRENT_SND_PRIORITY     401
