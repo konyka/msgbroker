@@ -10,6 +10,7 @@ void mb_slab_init (struct mb_slab *self, size_t obj_size, size_t capacity)
 {
     size_t i;
     void **freelist;
+    size_t alloc_size;
 
     self->obj_size = obj_size;
     self->count = 0;
@@ -21,24 +22,30 @@ void mb_slab_init (struct mb_slab *self, size_t obj_size, size_t capacity)
     if (capacity > SIZE_MAX / sizeof (void *))
         return;
 
+    /*  Each object carries an 8-byte header (magic + obj_size) before
+     *  the user-visible pointer so that a wrong-slab free can be
+     *  detected. Allocate obj_size + MB_SLAB_HDR_SIZE bytes per object. */
+    if (obj_size > SIZE_MAX - MB_SLAB_HDR_SIZE)
+        return;
+    alloc_size = obj_size + MB_SLAB_HDR_SIZE;
+
     freelist = (void **) mb_alloc (capacity * sizeof (void *));
     if (!freelist)
         return;
 
     for (i = 0; i < capacity; i++) {
-        void *obj = mb_alloc (obj_size);
-        if (!obj) {
+        void *raw = mb_alloc (alloc_size);
+        if (!raw) {
             if (i == 0) {
                 mb_free (freelist);
                 return;
             }
-            /* Keep the successfully allocated prefix as a smaller slab. */
             self->freelist = freelist;
             self->capacity = i;
             return;
         }
-        memset (obj, 0, obj_size);
-        freelist[i] = obj;
+        memset (raw, 0, alloc_size);
+        freelist[i] = raw;
     }
 
     self->freelist = freelist;
@@ -65,24 +72,42 @@ void mb_slab_term (struct mb_slab *self)
     self->count = 0;
 }
 
+#define MB_SLAB_MAGIC 0x534C4142u  /* "SLAB" */
+#define MB_SLAB_HDR_SIZE (sizeof (uint32_t) * 2)
+
 void *mb_slab_alloc (struct mb_slab *self)
 {
-    void *obj;
+    void *raw;
+    void *user;
+    uint32_t *hdr;
 
     if (!self->freelist || self->count >= self->capacity)
         return NULL;
-    obj = self->freelist[self->count];
-    if (!obj)
+    raw = self->freelist[self->count];
+    if (!raw)
         return NULL;
     self->freelist[self->count] = NULL;
     self->count++;
-    return obj;
+    user = (char *) raw + MB_SLAB_HDR_SIZE;
+    hdr = (uint32_t *) raw;
+    hdr[0] = MB_SLAB_MAGIC;
+    hdr[1] = (uint32_t) self->obj_size;
+    return user;
 }
 
 void mb_slab_free (struct mb_slab *self, void *obj)
 {
+    void *raw;
+    uint32_t *hdr;
+
     if (!obj || !self->freelist || self->count == 0)
         return;
+    raw = (char *) obj - MB_SLAB_HDR_SIZE;
+    hdr = (uint32_t *) raw;
+    if (hdr[0] != MB_SLAB_MAGIC || hdr[1] != (uint32_t) self->obj_size)
+        return;
+    hdr[0] = 0;
+    hdr[1] = 0;
     self->count--;
     self->freelist[self->count] = obj;
 }

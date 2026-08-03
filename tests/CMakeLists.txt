@@ -18,6 +18,7 @@ set(MB_TEST_SOURCES
     unit/test_chunk_realloc_refcount.c
     unit/test_msg.c
     unit/test_slab.c
+    unit/test_slab_validate_free.c
     unit/test_arena.c
     unit/test_pool.c
     unit/test_fsm.c
