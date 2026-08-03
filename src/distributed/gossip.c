@@ -32,6 +32,7 @@ void mb_gossip_init (struct mb_gossip *self,
     memcpy (&self->config, config, sizeof (self->config));
     mb_list_init (&self->nodes);
     mb_mutex_init (&self->sync);
+    mb_condvar_init (&self->stop_cv);
     mb_thread_init (&self->thread);
     mb_atomic_store (&self->running, 0);
     self->on_change = NULL;
@@ -54,15 +55,25 @@ void mb_gossip_term (struct mb_gossip *self)
     }
 
     mb_mutex_term (&self->sync);
+    mb_condvar_term (&self->stop_cv);
     mb_list_term (&self->nodes);
 }
 
 static void mb_gossip_thread_routine (void *arg)
 {
     struct mb_gossip *self = (struct mb_gossip *) arg;
+    int interval_ms = self->config.interval_ms > 0 ? self->config.interval_ms
+        : MB_GOSSIP_DEFAULT_INTERVAL_MS;
     while (mb_atomic_load (&self->running)) {
         mb_gossip_tick (self);
-        usleep ((useconds_t) self->config.interval_ms * 1000);
+        /*  Sleep on a condvar with timeout instead of usleep so that
+         *  mb_gossip_stop can wake the worker immediately rather than
+         *  blocking until the next interval boundary. */
+        mb_mutex_lock (&self->sync);
+        if (mb_atomic_load (&self->running))
+            (void) mb_condvar_wait (&self->stop_cv, &self->sync,
+                interval_ms);
+        mb_mutex_unlock (&self->sync);
     }
 }
 
@@ -75,7 +86,10 @@ int mb_gossip_start (struct mb_gossip *self)
 void mb_gossip_stop (struct mb_gossip *self)
 {
     if (mb_atomic_load (&self->running)) {
+        mb_mutex_lock (&self->sync);
         mb_atomic_store (&self->running, 0);
+        mb_condvar_broadcast (&self->stop_cv);
+        mb_mutex_unlock (&self->sync);
         mb_thread_join (&self->thread);
     }
 }

@@ -2,6 +2,7 @@
 #define MB_DISTRIBUTED_GOSSIP_H_INCLUDED
 
 #include "../pal/mutex.h"
+#include "../pal/condvar.h"
 #include "../pal/thread.h"
 #include "../pal/atomic.h"
 #include "../utils/list.h"
@@ -45,6 +46,7 @@ struct mb_gossip {
     struct mb_gossip_config config;
     struct mb_list nodes;
     struct mb_mutex sync;
+    struct mb_condvar stop_cv;
     struct mb_thread thread;
     mb_atomic_int running;
     mb_gossip_on_change on_change;

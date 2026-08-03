@@ -40,6 +40,7 @@ set(MB_TEST_SOURCES
     unit/test_reqrep.c
     unit/test_protocols.c
     unit/test_distributed.c
+    unit/test_gossip_shutdown_latency.c
     unit/test_strerror.c
     unit/test_errno_per_thread.c
     unit/test_sendmsg.c
