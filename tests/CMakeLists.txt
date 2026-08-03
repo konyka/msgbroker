@@ -11,6 +11,7 @@ set(MB_TEST_SOURCES
     unit/test_list.c
     unit/test_queue.c
     unit/test_msgqueue.c
+    fuzz/test_mpsc_chaos.c
     unit/test_hash.c
     unit/test_hash_rehash.c
     unit/test_trie.c
@@ -46,6 +47,7 @@ set(MB_TEST_SOURCES
     unit/test_distributed.c
     unit/test_ring_property.c
     unit/test_gossip_shutdown_latency.c
+    unit/test_discovery_shutdown_latency.c
     unit/test_strerror.c
     unit/test_errno_per_thread.c
     unit/test_sendmsg.c
