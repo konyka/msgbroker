@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <poll.h>
 
@@ -61,6 +62,17 @@ static void mb_ctcp_reconnect_loop (void *arg)
             mb_msleep_while (&self->running, current_ivl);
             current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
             continue;
+        }
+
+        {
+            int keepalive = self->ep->options.tcp_keepalive;
+            if (setsockopt (fd, SOL_SOCKET, SO_KEEPALIVE,
+                    &keepalive, sizeof (keepalive)) < 0) {
+                close (fd);
+                mb_msleep_while (&self->running, current_ivl);
+                current_ivl = mb_reconnect_next_ivl (current_ivl, ivl_max);
+                continue;
+            }
         }
 
         sipc = (struct mb_sipc *) mb_alloc (sizeof (struct mb_sipc));

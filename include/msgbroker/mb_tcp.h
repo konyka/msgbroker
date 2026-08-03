@@ -9,6 +9,7 @@ extern "C" {
 #define MB_TCP -3
 /** TCP_NODELAY option flag. */
 #define MB_TCP_NODELAY 1
+#define MB_TCP_KEEPALIVE 2
 
 #ifdef __cplusplus
 }

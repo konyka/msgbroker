@@ -97,6 +97,14 @@ static void mb_btcp_accept_loop (void *arg)
                 (struct sockaddr *) &client, &client_len);
             if (client_fd < 0)
                 continue;
+            {
+                int keepalive = self->ep->options.tcp_keepalive;
+                if (setsockopt (client_fd, SOL_SOCKET, SO_KEEPALIVE,
+                        &keepalive, sizeof (keepalive)) < 0) {
+                    close (client_fd);
+                    continue;
+                }
+            }
 
             setsockopt (client_fd, IPPROTO_TCP, TCP_NODELAY,
                 &flag, sizeof (flag));

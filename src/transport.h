@@ -63,6 +63,7 @@ struct mb_ep_options {
     int sndprio;
     int rcvprio;
     int ipv4only;
+    int tcp_keepalive;
 };
 
 struct mb_pipebase {

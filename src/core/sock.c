@@ -12,6 +12,7 @@
 #include "../pal/efd.h"
 
 #include <msgbroker/mb_tls.h>
+#include <msgbroker/mb_tcp.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -104,6 +105,7 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
     self->ep_template.sndprio = 8;
     self->ep_template.rcvprio = 8;
     self->ep_template.ipv4only = 0;
+    self->ep_template.tcp_keepalive = 0;
 
     for (i = 0; i < MB_MAX_TRANSPORT; ++i)
         self->optsets[i] = NULL;
@@ -291,6 +293,18 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         }
     }
 
+    if (level == MB_TCP && option == MB_TCP_KEEPALIVE) {
+        int v;
+
+        if (!optval || optvallen != sizeof (int))
+            return -EINVAL;
+        v = *(const int *) optval;
+        if (v != 0 && v != 1)
+            return -EINVAL;
+        self->ep_template.tcp_keepalive = v;
+        return 0;
+    }
+
     if (level == MB_TLS) {
         switch (option) {
         case MB_TLS_CONFIG_CERT:
@@ -415,6 +429,14 @@ int mb_sock_getopt_inner (struct mb_sock *self, int level, int option,
             *optvallen = sizeof (int);
             return 0;
         }
+    }
+
+    if (level == MB_TCP && option == MB_TCP_KEEPALIVE) {
+        if (!optval || !optvallen || *optvallen < sizeof (int))
+            return -EINVAL;
+        *(int *) optval = self->ep_template.tcp_keepalive;
+        *optvallen = sizeof (int);
+        return 0;
     }
 
     if (level == MB_TLS) {
