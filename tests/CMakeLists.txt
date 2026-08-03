@@ -27,6 +27,7 @@ set(MB_TEST_SOURCES
     unit/test_threadpool.c
     unit/test_coroutine.c
     unit/test_global.c
+    unit/test_init_race.c
     unit/test_socket.c
     unit/test_endpoint.c
     unit/test_pipe.c

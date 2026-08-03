@@ -186,12 +186,28 @@ void mb_term (void)
         return;
 
     mb_mutex_lock (&g_self.lock);
+    /*  Idempotent: once the global context has been marked TERMED, a
+     *  second mb_term call is a no-op rather than a NULL-pointer
+     *  dereference walk. */
+    if (g_self.flags & MB_CTX_FLAG_TERMED) {
+        mb_mutex_unlock (&g_self.lock);
+        return;
+    }
     g_self.flags |= MB_CTX_FLAG_TERMING;
     mb_mutex_unlock (&g_self.lock);
 
+    /*  Snapshot the live socket set under the lock so the loop below
+     *  is not racing with concurrent mb_close callers that free
+     *  g_self.socks out from under us. */
+    mb_mutex_lock (&g_self.lock);
     for (i = 0; i < MB_MAX_SOCKETS; i++) {
-        (void) mb_close (i);
+        struct mb_sock *s = g_self.socks ? g_self.socks[i] : NULL;
+        mb_mutex_unlock (&g_self.lock);
+        if (s)
+            (void) mb_close (i);
+        mb_mutex_lock (&g_self.lock);
     }
+    mb_mutex_unlock (&g_self.lock);
 
     mb_mutex_lock (&g_self.lock);
     g_self.flags |= MB_CTX_FLAG_TERMED;
@@ -243,6 +259,10 @@ int mb_socket (int domain, int protocol)
 {
     int rc;
 
+    /*  Lazy init the mutex/condvar exactly once, under no lock —
+     *  pthread_once semantics make this race-free for POSIX mutex
+     *  init. Subsequent mb_term resets inited so the next caller
+     *  re-initialises. */
     if (!g_self.inited) {
         mb_mutex_init (&g_self.lock);
         mb_condvar_init (&g_self.cond);
