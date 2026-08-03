@@ -297,7 +297,7 @@ int mb_close (int s)
 
     mb_mutex_lock (&g_self.lock);
 
-    if (s < 0 || s >= MB_MAX_SOCKETS || !g_self.socks[s]) {
+    if (s < 0 || s >= MB_MAX_SOCKETS || !g_self.socks || !g_self.socks[s]) {
         mb_mutex_unlock (&g_self.lock);
         mb_err_set_errno (EBADF);
         return -1;
