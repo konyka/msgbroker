@@ -31,6 +31,7 @@ struct mb_sws {
     struct mb_mutex outlock;
     int pending_pong;
     int pong_len;
+    int in_flight;
     uint8_t pong_buf[125];
     struct ssl_st *ssl;
     mb_atomic_int disconnected;

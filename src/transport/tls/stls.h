@@ -25,6 +25,7 @@ struct mb_stls {
     int instate;
     int outpos;
     int outlen;
+    int in_flight;
     struct mb_mutex outlock;
     mb_atomic_int disconnected;
     void (*on_error) (void *arg);

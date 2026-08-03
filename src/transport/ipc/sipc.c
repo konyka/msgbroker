@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <poll.h>
+#include <stdio.h>
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
@@ -167,6 +168,7 @@ int mb_sipc_create (struct mb_sipc *self, struct mb_ep *ep, int fd)
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
+    self->in_flight = 0;
     mb_atomic_store (&self->disconnected, 0);
     self->on_error = NULL;
     self->on_error_arg = NULL;
@@ -253,6 +255,8 @@ static int mb_sipc_flush_outbuf (struct mb_sipc *self)
     self->outbuf = NULL;
     self->outpos = 0;
     self->outlen = 0;
+    if (self->in_flight > 0)
+        self->in_flight--;
     mb_mutex_unlock (&self->outlock);
     return 0;
 }
@@ -320,19 +324,33 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
     mb_sipc_sync_bufs (self);
 
     rc = mb_sipc_flush_outbuf (self);
-    if (rc < 0)
+    if (rc < 0) {
+        /* Flush of the previous outbuf hit the wire limit; the new send
+         * is rejected. With HWM set, this is the HWM-drop the user wants
+         * to count. Without HWM the caller will retry until it succeeds
+         * or the per-socket sndtimeo elapses. */
+        if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
+            mb_sock_stat_increment (base->sock, MB_STAT_DROPPED, 1);
         return rc;
+    }
 
     {
+        struct mb_sock *sock = base->sock;
         size_t body_size = mb_chunkref_size (&msg->body);
 
-        if (mb_sock_msg_too_large (base->sock, body_size))
+        if (mb_sock_msg_too_large (sock, body_size))
             return -EMSGSIZE;
         /* outlen is int — reject before HDR+body overflows the cast. */
         if (body_size > (size_t) INT_MAX - MB_SIPC_HDR_SIZE)
             return -EMSGSIZE;
 
         mb_mutex_lock (&self->outlock);
+        if (sock && sock->hwm > 0 && self->in_flight >= sock->hwm) {
+            mb_mutex_unlock (&self->outlock);
+            if (sock)
+                mb_sock_stat_increment (sock, MB_STAT_DROPPED, 1);
+            return -EAGAIN;
+        }
         self->outlen = (int) (MB_SIPC_HDR_SIZE + body_size);
         self->outbuf = (uint8_t *) mb_alloc ((size_t) self->outlen);
         if (!self->outbuf) {
@@ -344,6 +362,7 @@ static int mb_sipc_send (struct mb_pipebase *base, struct mb_msg *msg)
             memcpy (self->outbuf + MB_SIPC_HDR_SIZE,
                 mb_chunkref_data (&msg->body), body_size);
         self->outpos = 0;
+        self->in_flight++;
         mb_mutex_unlock (&self->outlock);
 
         /* Accepted: EAGAIN means pending wire flush, not "msg not taken". */

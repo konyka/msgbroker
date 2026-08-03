@@ -305,6 +305,7 @@ int mb_sws_create (struct mb_sws *self, struct mb_ep *ep, int fd,
     self->outpos = 0;
     self->pending_pong = 0;
     self->pong_len = 0;
+    self->in_flight = 0;
     memset (self->mask_key, 0, 4);
     mb_atomic_store (&self->disconnected, 0);
     self->on_error = NULL;
@@ -397,6 +398,8 @@ static int mb_sws_flush_outbuf (struct mb_sws *self)
     self->outbuf = NULL;
     self->outlen = 0;
     self->outpos = 0;
+    if (self->in_flight > 0)
+        self->in_flight--;
     mb_mutex_unlock (&self->outlock);
     return 0;
 }
@@ -509,15 +512,19 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     }
 
     rc = mb_sws_flush_outbuf (self);
-    if (rc < 0)
+    if (rc < 0) {
+        if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
+            mb_sock_stat_increment (base->sock, MB_STAT_DROPPED, 1);
         return rc;
+    }
 
     {
+        struct mb_sock *sock = base->sock;
         uint8_t *payload;
         size_t payload_len;
 
         body_len = mb_chunkref_size (&msg->body);
-        if (mb_sock_msg_too_large (base->sock, body_len))
+        if (mb_sock_msg_too_large (sock, body_len))
             return -EMSGSIZE;
         mb_wire_put_uint32 (hdr, (uint32_t) body_len);
         payload_len = 4 + body_len;
@@ -533,10 +540,19 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
         }
 
         mb_mutex_lock (&self->outlock);
+        if (sock && sock->hwm > 0 && self->in_flight >= sock->hwm) {
+            mb_mutex_unlock (&self->outlock);
+            mb_free (payload);
+            if (sock)
+                mb_sock_stat_increment (sock, MB_STAT_DROPPED, 1);
+            return -EAGAIN;
+        }
         rc = mb_sws_build_frame (self, MB_WS_OPCODE_BINARY, payload,
             payload_len, &self->outbuf, &self->outlen);
         if (rc == 0)
             self->outpos = 0;
+        if (rc == 0)
+            self->in_flight++;
         mb_mutex_unlock (&self->outlock);
         mb_free (payload);
         if (rc < 0)

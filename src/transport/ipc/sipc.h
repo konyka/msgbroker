@@ -24,6 +24,7 @@ struct mb_sipc {
     int instate;
     int outpos;
     int outlen;
+    int in_flight;
     /* Guards outbuf/outpos/outlen: the app send thread and the reconnect/
      * accept thread (via mb_sock_pipe_add -> can_send) flush concurrently. */
     struct mb_mutex outlock;
