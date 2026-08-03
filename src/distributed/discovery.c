@@ -21,6 +21,8 @@ void mb_discovery_init (struct mb_discovery *self,
     const struct mb_discovery_config *config)
 {
     memcpy (&self->config, config, sizeof (self->config));
+    mb_mutex_init (&self->sync);
+    mb_condvar_init (&self->stop_cv);
     mb_thread_init (&self->thread);
     mb_atomic_store (&self->running, 0);
     self->sock_fd = -1;
@@ -32,6 +34,8 @@ void mb_discovery_term (struct mb_discovery *self)
 {
     mb_discovery_stop (self);
     mb_thread_term (&self->thread);
+    mb_condvar_term (&self->stop_cv);
+    mb_mutex_term (&self->sync);
 }
 
 static void mb_discovery_broadcast (struct mb_discovery *self)
@@ -108,7 +112,14 @@ static void mb_discovery_thread_routine (void *arg)
             tv.tv_usec = 0;
         }
 
-        usleep ((useconds_t) self->config.interval_ms * 1000);
+        /* Sleep on a condvar with timeout instead of usleep so that
+         * mb_discovery_stop can wake the worker immediately rather
+         * than blocking until the next interval boundary. */
+        mb_mutex_lock (&self->sync);
+        if (mb_atomic_load (&self->running))
+            (void) mb_condvar_wait (&self->stop_cv, &self->sync,
+                self->config.interval_ms);
+        mb_mutex_unlock (&self->sync);
     }
 }
 
@@ -136,7 +147,10 @@ int mb_discovery_start (struct mb_discovery *self)
 void mb_discovery_stop (struct mb_discovery *self)
 {
     if (mb_atomic_load (&self->running)) {
+        mb_mutex_lock (&self->sync);
         mb_atomic_store (&self->running, 0);
+        mb_condvar_broadcast (&self->stop_cv);
+        mb_mutex_unlock (&self->sync);
         mb_thread_join (&self->thread);
     }
     if (self->sock_fd >= 0) {

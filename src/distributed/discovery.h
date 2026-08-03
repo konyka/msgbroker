@@ -1,6 +1,8 @@
 #ifndef MB_DISTRIBUTED_DISCOVERY_H_INCLUDED
 #define MB_DISTRIBUTED_DISCOVERY_H_INCLUDED
 
+#include "../pal/condvar.h"
+#include "../pal/mutex.h"
 #include "../pal/thread.h"
 #include "../pal/atomic.h"
 
@@ -24,6 +26,8 @@ typedef void (*mb_discovery_on_node)(void *ctx, uint32_t node_id,
 
 struct mb_discovery {
     struct mb_discovery_config config;
+    struct mb_mutex sync;
+    struct mb_condvar stop_cv;
     struct mb_thread thread;
     mb_atomic_int running;
     int sock_fd;
