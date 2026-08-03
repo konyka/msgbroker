@@ -30,11 +30,15 @@ static void *raiser (void *arg)
     struct mb_fsm dummy;
     struct mb_fsm_event ev;
     int i;
+
+    /*  Bind the dummy fsm to the test's ctx so post-term raises
+     *  exercise the ctx torn-down drop path, not the no-ctx
+     *  immediate-process path (which dereferences fsm->fn). */
+    dummy.ctx = c;
     for (i = 0; i < 10000; ++i) {
         ev.fsm = &dummy;
         ev.type = 1;
         mb_fsm_raise (&dummy, &ev, 1);
-        (void) c;
     }
     return NULL;
 }
