@@ -12,6 +12,7 @@ set(MB_TEST_SOURCES
     unit/test_queue.c
     unit/test_msgqueue.c
     unit/test_hash.c
+    unit/test_hash_rehash.c
     unit/test_trie.c
     unit/test_wire.c
     unit/test_chunk.c
