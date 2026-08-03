@@ -33,7 +33,11 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-/*  Handle DSO symbol visibility. */
+/*  Handle DSO symbol visibility. The default on POSIX is to give
+ *  every MB_EXPORT tag a default visibility attribute so that the
+ *  shared library exposes only the public surface. Compilers with
+ *  hidden visibility by default (-fvisibility=hidden) honour this
+ *  without further flags. */
 #if !defined(MB_EXPORT)
 #    if defined(_WIN32) && !defined(MB_STATIC_LIB)
 #        if defined MB_SHARED_LIB
@@ -41,6 +45,8 @@ extern "C" {
 #        else
 #            define MB_EXPORT __declspec(dllimport)
 #        endif
+#    elif defined(__GNUC__) || defined(__clang__)
+#        define MB_EXPORT __attribute__((visibility("default"))) extern
 #    else
 #        define MB_EXPORT extern
 #    endif

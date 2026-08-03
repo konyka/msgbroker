@@ -164,7 +164,11 @@ if(MB_SHARED_LIB)
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
         PUBLIC_HEADER "${MB_HEADERS_PUBLIC}"
+        C_VISIBILITY_PRESET hidden
     )
+    if(UNIX)
+        set_target_properties(msgbroker PROPERTIES VISIBILITY_INLINES_HIDDEN ON)
+    endif()
     if(UNIX)
         target_link_libraries(msgbroker PRIVATE pthread)
     endif()
