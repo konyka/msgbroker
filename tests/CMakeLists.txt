@@ -26,6 +26,7 @@ set(MB_TEST_SOURCES
     unit/test_evloop.c
     unit/test_timer.c
     unit/test_threadpool.c
+    unit/test_threadpool_wakeup.c
     unit/test_coroutine.c
     unit/test_global.c
     unit/test_init_race.c

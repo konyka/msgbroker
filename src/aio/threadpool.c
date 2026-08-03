@@ -6,14 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct mb_threadpool_thread {
-    struct mb_thread thread;
-    struct mb_threadpool *pool;
-    struct mb_queue local_queue;
-    struct mb_mutex local_lock;
-    mb_atomic_int running;
-};
-
 static void mb_threadpool_worker_fn (void *arg)
 {
     struct mb_threadpool_thread *t = (struct mb_threadpool_thread *) arg;
@@ -22,13 +14,16 @@ static void mb_threadpool_worker_fn (void *arg)
     while (mb_atomic_load (&t->running)) {
         mb_mutex_lock (&t->local_lock);
         struct mb_queue_item *qi = mb_queue_pop (&t->local_queue);
-        mb_mutex_unlock (&t->local_lock);
-
         if (!qi) {
-            struct timespec ts = {0, 1000000};
-            nanosleep (&ts, NULL);
+            /*  Sleep on the wake condvar with a 1 ms cap. Submit
+             *  signals on the same condvar so an idle worker wakes
+             *  within microseconds, not milliseconds. */
+            if (mb_atomic_load (&t->running))
+                (void) mb_condvar_wait (&t->wake_cond, &t->local_lock, 1);
+            mb_mutex_unlock (&t->local_lock);
             continue;
         }
+        mb_mutex_unlock (&t->local_lock);
 
         struct mb_threadpool_task *task =
             mb_cont (qi, struct mb_threadpool_task, item);
@@ -37,10 +32,6 @@ static void mb_threadpool_worker_fn (void *arg)
         mb_condvar_signal (&pool->wait_cond);
     }
 }
-
-struct mb_threadpool_internal {
-    struct mb_threadpool_thread *threads;
-};
 
 int mb_threadpool_init (struct mb_threadpool *self, int nworkers)
 {
@@ -55,16 +46,19 @@ int mb_threadpool_init (struct mb_threadpool *self, int nworkers)
     if (!threads)
         return -ENOMEM;
 
+    self->threads = threads;
     mb_mutex_init (&self->global_lock);
     mb_condvar_init (&self->wait_cond);
     mb_atomic_store (&self->running, 1);
     mb_atomic_store (&self->pending, 0);
+    mb_atomic_store (&self->round_robin, 0);
 
     for (i = 0; i < nworkers; i++) {
         threads[i].pool = self;
         mb_atomic_store (&threads[i].running, 1);
         mb_queue_init (&threads[i].local_queue);
         mb_mutex_init (&threads[i].local_lock);
+        mb_condvar_init (&threads[i].wake_cond);
         mb_thread_init (&threads[i].thread);
         int rc = mb_thread_start (&threads[i].thread,
             mb_threadpool_worker_fn, &threads[i]);
@@ -73,22 +67,21 @@ int mb_threadpool_init (struct mb_threadpool *self, int nworkers)
             int j;
             for (j = 0; j < i; j++) {
                 mb_atomic_store (&threads[j].running, 0);
+                mb_mutex_term (&threads[j].wake_cond);
                 mb_thread_join (&threads[j].thread);
                 mb_thread_term (&threads[j].thread);
                 mb_mutex_term (&threads[j].local_lock);
                 mb_queue_term (&threads[j].local_queue);
             }
+            mb_condvar_term (&threads[i].wake_cond);
             mb_thread_term (&threads[i].thread);
             mb_mutex_term (&threads[i].local_lock);
             mb_queue_term (&threads[i].local_queue);
-            mb_condvar_term (&self->wait_cond);
-            mb_mutex_term (&self->global_lock);
             mb_free (threads);
+            self->threads = NULL;
             return rc;
         }
     }
-
-    self->workers = (struct mb_worker *) threads;
     return 0;
 }
 
@@ -96,30 +89,42 @@ void mb_threadpool_term (struct mb_threadpool *self)
 {
     int i;
     struct mb_threadpool_thread *threads =
-        (struct mb_threadpool_thread *) self->workers;
+        (struct mb_threadpool_thread *) self->threads;
+
+    if (!threads)
+        return;
+
     for (i = 0; i < self->nworkers; i++) {
+        mb_mutex_lock (&threads[i].local_lock);
         mb_atomic_store (&threads[i].running, 0);
+        mb_condvar_broadcast (&threads[i].wake_cond);
+        mb_mutex_unlock (&threads[i].local_lock);
+    }
+    for (i = 0; i < self->nworkers; i++) {
         mb_thread_join (&threads[i].thread);
         mb_thread_term (&threads[i].thread);
+        mb_condvar_term (&threads[i].wake_cond);
         mb_mutex_term (&threads[i].local_lock);
         mb_queue_term (&threads[i].local_queue);
     }
     mb_condvar_term (&self->wait_cond);
     mb_mutex_term (&self->global_lock);
     mb_free (threads);
-    self->workers = NULL;
+    self->threads = NULL;
 }
 
 void mb_threadpool_submit (struct mb_threadpool *self,
     struct mb_threadpool_task *task)
 {
     struct mb_threadpool_thread *threads =
-        (struct mb_threadpool_thread *) self->workers;
+        (struct mb_threadpool_thread *) self->threads;
     mb_atomic_fetch_add (&self->pending, 1);
-    static mb_atomic_int round_robin = 0;
-    int idx = mb_atomic_fetch_add (&round_robin, 1) % self->nworkers;
+    /*  Per-instance counter (no longer process-global) so two
+     *  independent pools round-robin within themselves. */
+    int idx = mb_atomic_fetch_add (&self->round_robin, 1) % self->nworkers;
     mb_mutex_lock (&threads[idx].local_lock);
     mb_queue_push (&threads[idx].local_queue, &task->item);
+    mb_condvar_signal (&threads[idx].wake_cond);
     mb_mutex_unlock (&threads[idx].local_lock);
 }
 

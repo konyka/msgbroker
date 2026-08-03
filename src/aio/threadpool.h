@@ -12,10 +12,19 @@ struct mb_threadpool_task {
     struct mb_queue_item item;
 };
 
+struct mb_threadpool_thread {
+    struct mb_thread thread;
+    struct mb_threadpool *pool;
+    struct mb_queue local_queue;
+    struct mb_mutex local_lock;
+    struct mb_condvar wake_cond;
+    mb_atomic_int running;
+};
+
 struct mb_threadpool {
-    struct mb_worker *workers;
+    struct mb_threadpool_thread *threads;
     int nworkers;
-    struct mb_queue global_queue;
+    mb_atomic_int round_robin;
     struct mb_mutex global_lock;
     struct mb_condvar wait_cond;
     mb_atomic_int running;
