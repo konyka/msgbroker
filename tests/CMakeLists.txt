@@ -9,8 +9,9 @@ set(MB_TEST_SOURCES
     unit/test_clock.c
     unit/test_semaphore.c
     unit/test_list.c
-    unit/test_queue.c
-    unit/test_msgqueue.c
+     unit/test_queue.c
+     unit/test_mpsc_double_term.c
+     unit/test_msgqueue.c
     fuzz/test_mpsc_chaos.c
     unit/test_hash.c
     unit/test_hash_rehash.c
