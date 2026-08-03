@@ -350,6 +350,8 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
          * MB_STAT_DROPPED is incremented iff the user has set HWM. */
         if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
             mb_sock_stat_increment (base->sock, MB_STAT_DROPPED, 1);
+        if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
+            mb_sock_stat_increment (base->sock, MB_STAT_QUEUE_FULL, 1);
         return rc;
     }
 
@@ -367,6 +369,8 @@ static int mb_stls_send (struct mb_pipebase *base, struct mb_msg *msg)
             mb_mutex_unlock (&self->outlock);
             if (sock)
                 mb_sock_stat_increment (sock, MB_STAT_DROPPED, 1);
+            if (sock)
+                mb_sock_stat_increment (sock, MB_STAT_QUEUE_FULL, 1);
             return -EAGAIN;
         }
         self->outlen = (int) (MB_STLS_HDR_SIZE + body_size);

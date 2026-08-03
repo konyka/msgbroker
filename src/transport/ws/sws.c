@@ -515,6 +515,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
     if (rc < 0) {
         if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
             mb_sock_stat_increment (base->sock, MB_STAT_DROPPED, 1);
+        if (rc == -EAGAIN && base->sock && base->sock->hwm > 0)
+            mb_sock_stat_increment (base->sock, MB_STAT_QUEUE_FULL, 1);
         return rc;
     }
 
@@ -545,6 +547,8 @@ static int mb_sws_send (struct mb_pipebase *base, struct mb_msg *msg)
             mb_free (payload);
             if (sock)
                 mb_sock_stat_increment (sock, MB_STAT_DROPPED, 1);
+            if (sock)
+                mb_sock_stat_increment (sock, MB_STAT_QUEUE_FULL, 1);
             return -EAGAIN;
         }
         rc = mb_sws_build_frame (self, MB_WS_OPCODE_BINARY, payload,
