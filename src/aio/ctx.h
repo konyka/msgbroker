@@ -2,6 +2,7 @@
 #define MB_CTX_H_INCLUDED
 
 #include "../pal/mutex.h"
+#include "../pal/atomic.h"
 #include "../utils/queue.h"
 
 struct mb_pool;
@@ -16,6 +17,7 @@ struct mb_ctx {
     struct mb_queue events;
     struct mb_queue eventsto;
     mb_ctx_onleave onleave;
+    mb_atomic_int terminated;
 };
 
 void mb_ctx_init (struct mb_ctx *self, struct mb_pool *pool,
