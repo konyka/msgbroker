@@ -24,14 +24,15 @@ int main (void)
     assert (p1 != NULL);
     memset (p1, 'B', 128);
 
-    /* Exhaust msg_slab (1024); overflow must be NULL, not an orphan heap ptr. */
+    /* Exhaust msg_slab (1024); overflow now routes through the pool-owned
+     * arena instead of returning NULL. Both paths must free cleanly. */
     for (i = 0; i < 1024; i++) {
         msgs[i] = mb_mempool_alloc_msg (&pool);
         assert (msgs[i] != NULL);
     }
     msgs[1024] = mb_mempool_alloc_msg (&pool);
-    assert (msgs[1024] == NULL);
-    for (i = 0; i < 1024; i++)
+    assert (msgs[1024] != NULL);
+    for (i = 0; i <= 1024; i++)
         mb_mempool_free_msg (&pool, msgs[i]);
     mb_mempool_free_msg (&pool, NULL);
 
