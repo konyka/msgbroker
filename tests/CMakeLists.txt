@@ -36,11 +36,13 @@ set(MB_TEST_SOURCES
     unit/test_socket.c
     unit/test_endpoint.c
     unit/test_pipe.c
+    unit/test_fq_sticky_active.c
     unit/test_poll.c
     unit/test_device.c
     unit/test_inproc.c
     unit/test_ipc.c
     unit/test_tcp.c
+    unit/test_tcp_keepalive.c
     unit/test_pipeline.c
     unit/test_reqrep.c
     unit/test_protocols.c
