@@ -48,5 +48,10 @@ void mb_pool_term (struct mb_pool *self)
 
 struct mb_worker *mb_pool_choose_worker (struct mb_pool *self)
 {
+    /*  Single-worker stub. The mb_pool surface was designed for N
+     *  workers but currently only carries one; choose_worker
+     *  returns it unconditionally. Calls that require work-stealing
+     *  across multiple workers will be added when the pool struct
+     *  grows to hold more than one mb_worker. */
     return &self->worker;
 }
