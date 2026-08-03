@@ -1,6 +1,7 @@
 #include "queue.h"
 #include "../pal/atomic.h"
 #include "fast.h"
+#include "alloc.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -108,7 +109,7 @@ int mb_queue_item_isinqueue (struct mb_queue_item *self)
  *  weakly-ordered hardware (ARMv8, POWER). */
 void mb_mpsc_queue_init (struct mb_mpsc_queue *self)
 {
-    self->stub = (struct mb_mpsc_queue_item *) malloc (sizeof (*self->stub));
+    self->stub = (struct mb_mpsc_queue_item *) mb_alloc (sizeof (*self->stub));
     if (!self->stub)
         abort ();
     atomic_store_explicit (&self->stub->next, NULL, memory_order_relaxed);
@@ -119,7 +120,9 @@ void mb_mpsc_queue_init (struct mb_mpsc_queue *self)
 
 void mb_mpsc_queue_term (struct mb_mpsc_queue *self)
 {
-    free (self->stub);
+    if (!self->stub)
+        return;
+    mb_free (self->stub);
     self->stub = NULL;
     self->head = NULL;
     atomic_store_explicit (&self->producer_tail, NULL, memory_order_relaxed);
