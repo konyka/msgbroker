@@ -68,8 +68,10 @@ set(MB_TEST_SOURCES
     unit/test_reconnect_disc.c
     unit/test_pubsub_filter.c
     unit/test_pubsub_hwm.c
+    unit/test_pubsub_priority.c
     unit/test_stats.c
     unit/test_stats_counters.c
+    unit/test_limits.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})

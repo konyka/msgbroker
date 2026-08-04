@@ -216,6 +216,21 @@ MB_EXPORT const char *mb_strerror (int errnum);
 #define MB_MAXTTL             17
 #define MB_HWM                18
 
+/*  Process-wide security caps (T-LIMITS). Settable via
+    mb_setsockopt(MB_SOL_SOCKET, MB_LIMITS_*, &val) so a host can install
+    its own runtime ceiling on what any socket on the process may
+    request. Anything above the active cap is rejected with -EPERM.
+
+    Defaults (set on first mb_socket / mb_init):
+      MB_LIMITS_RCVBUF    16 MiB   — cap on per-socket rcvbuf
+      MB_LIMITS_SNDTIMEO  60 000 ms — cap on sndtimeo
+      MB_LIMITS_RCVTIMEO  60 000 ms — cap on rcvtimeo
+      MB_LIMITS_BACKLOG   128       — cap on tcp/tls/ws listen backlog */
+#define MB_LIMITS_RCVBUF              19
+#define MB_LIMITS_SNDTIMEO            20
+#define MB_LIMITS_RCVTIMEO            21
+#define MB_LIMITS_BACKLOG             22
+
 /*  Send/recv flags. */
 #define MB_DONTWAIT 1
 
