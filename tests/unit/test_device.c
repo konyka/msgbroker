@@ -8,6 +8,7 @@
 #include <msgbroker/mb.h>
 #include <msgbroker/mb_pair.h>
 
+#include "../../src/pal/clock.h"
 #include "../../src/pal/thread.h"
 
 struct device_args {
@@ -129,11 +130,79 @@ static void test_device_close_under_send_backpressure (void)
     printf ("  test_device_close_under_send_backpressure: PASSED\n");
 }
 
+/*  T-DEVICE TDD gate: PAIR a<->b, send N from a-side, assert b receives N,
+ *  then close a-side and verify the worker thread exits within 200ms. */
+static void test_device_pair_n_msgs_then_close_exit (void)
+{
+    int a, b, ca, cb;
+    int rc;
+    int i;
+    int n = 32;
+    char buf[64];
+    struct mb_thread thr;
+    struct device_args args;
+    uint64_t t0, elapsed_ms;
+
+    a = mb_socket (AF_MB, MB_PAIR);
+    assert (a >= 0);
+    b = mb_socket (AF_MB, MB_PAIR);
+    assert (b >= 0);
+
+    rc = mb_bind (a, "inproc://td_n_left");
+    assert (rc >= 0);
+    rc = mb_bind (b, "inproc://td_n_right");
+    assert (rc >= 0);
+
+    args.s1 = a;
+    args.s2 = b;
+    mb_thread_init (&thr);
+    rc = mb_thread_start (&thr, device_thread, &args);
+    assert (rc == 0);
+
+    ca = mb_socket (AF_MB, MB_PAIR);
+    assert (ca >= 0);
+    cb = mb_socket (AF_MB, MB_PAIR);
+    assert (cb >= 0);
+
+    rc = mb_connect (ca, "inproc://td_n_left");
+    assert (rc >= 0);
+    rc = mb_connect (cb, "inproc://td_n_right");
+    assert (rc >= 0);
+
+    usleep (50000);
+
+    for (i = 0; i < n; i++) {
+        rc = mb_send (ca, "X", 1, 0);
+        assert (rc == 1);
+    }
+    for (i = 0; i < n; i++) {
+        rc = mb_recv (cb, buf, sizeof (buf), 0);
+        assert (rc == 1);
+        assert (buf[0] == 'X');
+    }
+
+    t0 = mb_clock_ms ();
+    rc = mb_close (a);
+    elapsed_ms = mb_clock_ms () - t0;
+    assert (rc == 0);
+    assert (elapsed_ms < 200);
+
+    mb_close (ca);
+    mb_close (cb);
+    mb_close (b);
+    mb_thread_join (&thr);
+    mb_thread_term (&thr);
+
+    printf ("  test_device_pair_n_msgs_then_close_exit: PASSED (n=%d, exit_ms=%llu)\n",
+        n, (unsigned long long) elapsed_ms);
+}
+
 int main (void)
 {
     printf ("test_device:\n");
     test_device_forward ();
     test_device_close_under_send_backpressure ();
+    test_device_pair_n_msgs_then_close_exit ();
     printf ("test_device: ALL PASSED\n");
     return 0;
 }
