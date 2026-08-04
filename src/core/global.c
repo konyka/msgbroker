@@ -13,6 +13,7 @@
 #include "../aio/coroutine.h"
 
 #include "global.h"
+#include "limits.h"
 #include "sock.h"
 #include "ep.h"
 
@@ -131,6 +132,8 @@ static void mb_global_init (void)
 
     if (g_self.socks)
         return;
+
+    mb_limits_install_defaults ();
 
     mb_random_seed ();
 
@@ -1013,38 +1016,102 @@ int mb_coro_send (int s, const void *buf, size_t len)
 {
     int rc;
     struct mb_coro *coro;
+    struct mb_sock *sock;
+    int timeout;
 
     coro = mb_coro_current ();
     if (!coro)
         return mb_send (s, buf, len, 0);
 
+    if (mb_global_hold_socket (&sock, s) < 0) {
+        mb_err_set_errno (EBADF);
+        return -1;
+    }
+    timeout = sock->sndtimeo;
+
     for (;;) {
         rc = mb_send (s, buf, len, MB_DONTWAIT);
         if (rc >= 0)
-            return rc;
-        if (mb_errno () != EAGAIN)
+            break;
+        if (mb_errno () != EAGAIN) {
+            mb_global_rele_socket (sock);
             return -1;
+        }
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
+            return -1;
+        }
+        if (timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (ETIMEDOUT);
+                return -1;
+            }
+        }
         mb_coro_yield (NULL);
     }
+
+    mb_global_rele_socket (sock);
+    return rc;
 }
 
 int mb_coro_recv (int s, void *buf, size_t len)
 {
     int rc;
     struct mb_coro *coro;
+    struct mb_sock *sock;
+    int timeout;
 
     coro = mb_coro_current ();
     if (!coro)
         return mb_recv (s, buf, len, 0);
 
+    if (mb_global_hold_socket (&sock, s) < 0) {
+        mb_err_set_errno (EBADF);
+        return -1;
+    }
+    timeout = sock->rcvtimeo;
+
     for (;;) {
         rc = mb_recv (s, buf, len, MB_DONTWAIT);
         if (rc >= 0)
-            return rc;
-        if (mb_errno () != EAGAIN)
+            break;
+        if (mb_errno () != EAGAIN) {
+            mb_global_rele_socket (sock);
             return -1;
+        }
+        if (__atomic_load_n (&sock->flags, __ATOMIC_ACQUIRE) &
+            MB_SOCK_FLAG_STOPPING) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EBADF);
+            return -1;
+        }
+        if (timeout == 0) {
+            mb_global_rele_socket (sock);
+            mb_err_set_errno (EAGAIN);
+            return -1;
+        }
+        if (timeout > 0) {
+            timeout -= 1;
+            if (timeout <= 0) {
+                mb_global_rele_socket (sock);
+                mb_err_set_errno (ETIMEDOUT);
+                return -1;
+            }
+        }
         mb_coro_yield (NULL);
     }
+
+    mb_global_rele_socket (sock);
+    return rc;
 }
 
 struct mb_pool *mb_global_pool (void)
