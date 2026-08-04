@@ -2,6 +2,7 @@
 #include "sws.h"
 #include "ws.h"
 #include "../../core/ep.h"
+#include "../../core/limits.h"
 #include "../../core/sock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
@@ -441,7 +442,9 @@ int mb_bwss_create (struct mb_ep *ep)
     if (rc < 0)
         return rc;
 
-    fd = mb_net_bind (host, port, 10, ep->options.ipv4only);
+    fd = mb_net_bind (host, port,
+        mb_limits_get_backlog () < 10 ? mb_limits_get_backlog () : 10,
+        ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

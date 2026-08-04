@@ -74,6 +74,7 @@ set(MB_SOURCES
     src/aio/ctx.c
     src/aio/pool.c
     src/core/global.c
+    src/core/limits.c
     src/core/sock.c
     src/core/ep.c
     src/core/pipe.c

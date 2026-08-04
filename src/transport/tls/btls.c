@@ -1,6 +1,7 @@
 #include "btls.h"
 #include "stls.h"
 #include "../../core/ep.h"
+#include "../../core/limits.h"
 #include "../../core/sock.h"
 #include "../../utils/alloc.h"
 #include "../../utils/err.h"
@@ -216,7 +217,10 @@ int mb_btls_create (struct mb_ep *ep)
     if (rc < 0)
         return rc;
 
-    fd = mb_net_bind (host, port, MB_BTLS_BACKLOG, ep->options.ipv4only);
+    fd = mb_net_bind (host, port,
+        (MB_BTLS_BACKLOG < mb_limits_get_backlog ()
+            ? MB_BTLS_BACKLOG : mb_limits_get_backlog ()),
+        ep->options.ipv4only);
     if (fd < 0)
         return fd;
 

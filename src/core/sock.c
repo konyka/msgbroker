@@ -7,6 +7,7 @@
 
 #include "sock.h"
 #include "global.h"
+#include "limits.h"
 #include "ep.h"
 #include "pipe.h"
 #include "../pal/efd.h"
@@ -245,10 +246,14 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
         case MB_RCVBUF: {
             int v = *(const int *)optval;
             struct mb_list_item *it;
+            int crc;
 
             /* msgqueue treats maxmem==0 as unlimited; reject before that. */
             if (v <= 0)
                 return -EINVAL;
+            crc = mb_limits_check_rcvbuf (v);
+            if (crc < 0)
+                return crc;
             self->rcvbuf = v;
             /* Inproc peers may be blocked on the old maxmem — wake them. */
             for (it = mb_list_begin (&self->pipes);
@@ -268,8 +273,22 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
             self->rcvmaxsize = v;
             return 0;
         }
-        case MB_SNDTIMEO:         self->sndtimeo = *(const int *)optval; return 0;
-        case MB_RCVTIMEO:         self->rcvtimeo = *(const int *)optval; return 0;
+        case MB_SNDTIMEO: {
+            int v = *(const int *)optval;
+            int crc = mb_limits_check_sndtimeo (v);
+            if (crc < 0)
+                return crc;
+            self->sndtimeo = v;
+            return 0;
+        }
+        case MB_RCVTIMEO: {
+            int v = *(const int *)optval;
+            int crc = mb_limits_check_rcvtimeo (v);
+            if (crc < 0)
+                return crc;
+            self->rcvtimeo = v;
+            return 0;
+        }
         case MB_RECONNECT_IVL:    self->reconnect_ivl = *(const int *)optval; return 0;
         case MB_RECONNECT_IVL_MAX:self->reconnect_ivl_max = *(const int *)optval; return 0;
         case MB_SNDPRIO:          self->ep_template.sndprio = *(const int *)optval; return 0;
@@ -290,6 +309,10 @@ int mb_sock_setopt (struct mb_sock *self, int level, int option,
             self->hwm = v;
             return 0;
         }
+        case MB_LIMITS_RCVBUF:   return mb_limits_set_rcvbuf (optval, optvallen);
+        case MB_LIMITS_SNDTIMEO: return mb_limits_set_sndtimeo (optval, optvallen);
+        case MB_LIMITS_RCVTIMEO: return mb_limits_set_rcvtimeo (optval, optvallen);
+        case MB_LIMITS_BACKLOG:  return mb_limits_set_backlog (optval, optvallen);
         }
     }
 
