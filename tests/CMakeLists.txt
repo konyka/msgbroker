@@ -57,6 +57,7 @@ set(MB_TEST_SOURCES
     unit/test_sendmsg.c
     unit/test_cmsg.c
     unit/test_coro_io.c
+    unit/test_coro_timeout.c
     unit/test_timeout.c
     unit/test_tls.c
     unit/test_tls_cert.c
