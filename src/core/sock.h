@@ -104,6 +104,9 @@ int mb_sock_pipe_add (struct mb_sock *self, struct mb_pipe *pipe);
 void mb_sock_pipe_rm (struct mb_sock *self, struct mb_pipe *pipe);
 void mb_sock_stat_increment (struct mb_sock *self, int name, int increment);
 uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat);
+/*  Set the MB_STAT_CURRENT_SND_PRIORITY gauge (T-PRIO). Highest
+ *  non-empty priority bucket wins; pass 0 when buckets are empty. */
+void mb_sock_set_current_snd_priority (struct mb_sock *self, int prio);
 int mb_sock_hold (struct mb_sock *self);
 void mb_sock_rele (struct mb_sock *self);
 /* 1 if size exceeds MB_RCVMAXSIZE (-1 = unlimited). */

@@ -129,6 +129,13 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
         return rc;
     }
 
+    /* Wire the sockbase back to its owning sock so protocol callbacks
+     * (e.g. mb_pub_send updating MB_STAT_CURRENT_SND_PRIORITY) can reach
+     * the sock's statistics. Protocols initialize the sockbase with
+     * hint=NULL; we patch it here. */
+    if (self->sockbase)
+        self->sockbase->sock = self;
+
     self->state = MB_SOCK_STATE_ACTIVE;
     mb_fsm_start (&self->fsm);
 
@@ -649,10 +656,19 @@ uint64_t mb_sock_get_statistic (struct mb_sock *self, int stat)
     case MB_STAT_MSGS_SENT:               return self->statistics.msgs_sent;
     case MB_STAT_MSGS_RECEIVED:           return self->statistics.msgs_received;
     case MB_STAT_QUEUE_FULL:              return self->statistics.queue_full;
-    case MB_STAT_CURRENT_SND_PRIORITY:    return (uint64_t)self->statistics.current_snd_priority;
+    case MB_STAT_CURRENT_SND_PRIORITY:    return (uint64_t)__atomic_load_n (
+        &self->statistics.current_snd_priority, __ATOMIC_ACQUIRE);
     case MB_STAT_CURRENT_EP_ERRORS:       return (uint64_t)self->statistics.current_ep_errors;
     }
     return 0;
+}
+
+void mb_sock_set_current_snd_priority (struct mb_sock *self, int prio)
+{
+    if (prio < 0)
+        prio = 0;
+    __atomic_store_n (&self->statistics.current_snd_priority, prio,
+        __ATOMIC_RELEASE);
 }
 
 int mb_sock_hold (struct mb_sock *self)
