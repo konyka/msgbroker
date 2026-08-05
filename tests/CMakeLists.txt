@@ -42,6 +42,7 @@ set(MB_TEST_SOURCES
     unit/test_poll.c
     unit/test_device.c
     unit/test_inproc.c
+    unit/test_inproc_lazy.c
     unit/test_ipc.c
     unit/test_tcp.c
     unit/test_tcp_keepalive.c

@@ -16,4 +16,10 @@ int mb_reconnect_cap_ivl (int ivl, int ivl_max);
 /* Double reconnect backoff without signed overflow; clamp to ivl_max. */
 int mb_reconnect_next_ivl (int current_ivl, int ivl_max);
 
+/* Same as mb_reconnect_next_ivl() but adds +/- 25% uniform random jitter
+ * on top of the doubled value, then clamps to ivl_max. Used by reconnect
+ * loops to avoid thundering herd after a shared outage. Backed by a
+ * thread-local PRNG seeded from mb_clock_us(); safe for concurrent calls. */
+int mb_reconnect_next_ivl_jittered (int current_ivl, int ivl_max);
+
 #endif
