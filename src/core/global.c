@@ -297,6 +297,7 @@ int mb_socket (int domain, int protocol)
 int mb_close (int s)
 {
     struct mb_sock *sock;
+    int linger_rc = 0;
 
     mb_mutex_lock (&g_self.lock);
 
@@ -323,12 +324,22 @@ int mb_close (int s)
         mb_msleep (1);
 
     mb_sock_stop (sock);
+    /* linger_outcome == 2 means the transport's linger_flush hit its
+     * deadline with the per-pipe outbuf still pending. Surface -ETIMEDOUT
+     * to the caller; inproc never sets linger_outcome (it bypasses linger),
+     * so this remains a no-op for inproc sockets. */
+    if (sock->linger_outcome == 2)
+        linger_rc = -ETIMEDOUT;
     mb_sock_term (sock);
     mb_free (sock);
 
     mb_mutex_lock (&g_self.lock);
     mb_global_term ();
     mb_mutex_unlock (&g_self.lock);
+    if (linger_rc < 0) {
+        mb_err_set_errno (-linger_rc);
+        return -1;
+    }
     return 0;
 }
 

@@ -272,7 +272,7 @@ static int mb_stls_flush_outbuf (struct mb_stls *self)
     return 0;
 }
 
-static void mb_stls_linger_flush (struct mb_stls *self)
+static int mb_stls_linger_flush (struct mb_stls *self)
 {
     int linger;
     int fd;
@@ -280,15 +280,15 @@ static void mb_stls_linger_flush (struct mb_stls *self)
     struct pollfd pfd;
 
     if (!self->outbuf || !self->ssl)
-        return;
+        return 0;
 
     linger = self->pipebase.sock ? self->pipebase.sock->linger : 0;
     if (linger <= 0)
-        return;
+        return 0;
 
     fd = SSL_get_fd (self->ssl);
     if (fd < 0)
-        return;
+        return 0;
 
     deadline = mb_clock_ms () + (uint64_t) linger;
     while (self->outbuf) {
@@ -296,23 +296,27 @@ static void mb_stls_linger_flush (struct mb_stls *self)
         int rc;
 
         if (left <= 0)
-            break;
+            return -ETIMEDOUT;
         pfd.fd = fd;
         pfd.events = POLLOUT;
         rc = poll (&pfd, 1, (int) left);
         if (rc <= 0)
-            break;
+            return -ETIMEDOUT;
         rc = mb_stls_flush_outbuf (self);
         if (rc != -EAGAIN)
             break;
     }
+    return self->outbuf ? -ETIMEDOUT : 0;
 }
 
 void mb_stls_stop (struct mb_stls *self)
 {
+    int rc;
     if (self->pipebase.state == 2)
         mb_pipebase_stop (&self->pipebase);
-    mb_stls_linger_flush (self);
+    rc = mb_stls_linger_flush (self);
+    if (self->pipebase.sock)
+        self->pipebase.sock->linger_outcome = (rc == 0) ? 1 : 2;
     mb_mutex_lock (&self->outlock);
     if (self->outbuf) {
         mb_free (self->outbuf);

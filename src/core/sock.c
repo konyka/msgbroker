@@ -100,8 +100,9 @@ int mb_sock_init (struct mb_sock *self, const struct mb_socktype *socktype,
     self->reconnect_ivl = 100;
     self->reconnect_ivl_max = 0;
     self->maxttl = 8;
-    self->linger = 1000;
+    self->linger = 0;
     self->hwm = 0;
+    self->linger_outcome = 0;
 
     self->ep_template.sndprio = 8;
     self->ep_template.rcvprio = 8;

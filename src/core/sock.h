@@ -50,6 +50,12 @@ struct mb_sock {
     int linger;
     int hwm;
 
+    /* Linger outcome from the most recent transport linger flush.
+     * 0 = not set (no linger, or inproc which bypasses linger)
+     * 1 = outbuf fully drained before deadline
+     * 2 = deadline expired with outbuf still pending (ETIMEDOUT) */
+    int linger_outcome;
+
     struct mb_ep_options ep_template;
     struct mb_optset *optsets[MB_MAX_TRANSPORT];
 
