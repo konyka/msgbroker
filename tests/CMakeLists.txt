@@ -72,6 +72,7 @@ set(MB_TEST_SOURCES
     unit/test_stats.c
     unit/test_stats_counters.c
     unit/test_limits.c
+    unit/test_linger.c
 )
 
 foreach(TEST_SRC ${MB_TEST_SOURCES})
