@@ -12,6 +12,9 @@ struct mb_cinproc {
     int state;
     struct mb_ins_item item;
     struct mb_sinproc *sinproc;
+    /* Peers attached when this cinproc acted as the lazy address owner.
+     * Holds mb_sinproc objects allocated lazily by incoming connectors. */
+    struct mb_list sinprocs;
 };
 
 int mb_cinproc_create (struct mb_ep *ep);

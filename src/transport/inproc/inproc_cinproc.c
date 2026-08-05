@@ -32,11 +32,11 @@ static int mb_cinproc_connect_cb (struct mb_ins_item *self,
     struct mb_ins_item *peer_item)
 {
     struct mb_cinproc *cinproc;
+    struct mb_cinproc *peer_cinproc;
     struct mb_binproc *binproc;
     struct mb_sinproc *bind_side;
 
     cinproc = mb_cont (self, struct mb_cinproc, item);
-    binproc = mb_cont (peer_item, struct mb_binproc, item);
 
     cinproc->sinproc = (struct mb_sinproc *) mb_alloc (
         sizeof (struct mb_sinproc));
@@ -53,14 +53,28 @@ static int mb_cinproc_connect_cb (struct mb_ins_item *self,
         return -ENOMEM;
     }
 
-    mb_sinproc_create (bind_side, binproc->item.ep);
-    mb_list_insert (&binproc->sinprocs, &bind_side->item,
-        mb_list_end (&binproc->sinprocs));
+    /* Peer is either a real bind-side binproc or a lazy-owner cinproc;
+     * both expose a `sinprocs` list that mirrors the bind side. */
+    if (peer_item->ep->bind) {
+        binproc = mb_cont (peer_item, struct mb_binproc, item);
+        mb_sinproc_create (bind_side, binproc->item.ep);
+        mb_list_insert (&binproc->sinprocs, &bind_side->item,
+            mb_list_end (&binproc->sinprocs));
+    } else {
+        peer_cinproc = mb_cont (peer_item, struct mb_cinproc, item);
+        mb_sinproc_create (bind_side, peer_cinproc->item.ep);
+        mb_list_insert (&peer_cinproc->sinprocs, &bind_side->item,
+            mb_list_end (&peer_cinproc->sinprocs));
+    }
 
     {
+        struct mb_list *list;
         int rc = mb_sinproc_connect (cinproc->sinproc, bind_side);
         if (rc < 0) {
-            mb_list_erase (&binproc->sinprocs, &bind_side->item);
+            list = peer_item->ep->bind
+                ? &mb_cont (peer_item, struct mb_binproc, item)->sinprocs
+                : &mb_cont (peer_item, struct mb_cinproc, item)->sinprocs;
+            mb_list_erase (list, &bind_side->item);
             mb_sinproc_term (bind_side);
             mb_free (bind_side);
             mb_sinproc_term (cinproc->sinproc);
@@ -86,10 +100,12 @@ int mb_cinproc_create (struct mb_ep *ep)
     self->state = MB_CINPROC_STATE_IDLE;
     mb_ins_item_init (&self->item, ep);
     self->sinproc = NULL;
+    mb_list_init (&self->sinprocs);
 
     /* Connect before tran_setup so OOM can fail create without a half EP. */
     rc = mb_ins_connect (&self->item, mb_cinproc_connect_cb);
     if (rc < 0) {
+        mb_list_term (&self->sinprocs);
         mb_ins_item_term (&self->item);
         mb_fsm_term (&self->fsm);
         mb_free (self);
@@ -104,11 +120,11 @@ int mb_cinproc_create (struct mb_ep *ep)
     return 0;
 }
 
-static void mb_cinproc_stop (void *p)
+/* Tear down every bind_side sinproc this cinproc hosted for lazy
+ * connectors, plus our own outgoing sinproc. */
+static void mb_cinproc_free_sinprocs (struct mb_cinproc *self)
 {
-    struct mb_cinproc *self = (struct mb_cinproc *) p;
-
-    self->state = MB_CINPROC_STATE_STOPPING;
+    struct mb_list_item *it;
 
     if (self->sinproc) {
         mb_sinproc_stop (self->sinproc);
@@ -116,6 +132,25 @@ static void mb_cinproc_stop (void *p)
         mb_free (self->sinproc);
         self->sinproc = NULL;
     }
+
+    while (!mb_list_empty (&self->sinprocs)) {
+        it = mb_list_begin (&self->sinprocs);
+        struct mb_sinproc *sp =
+            mb_cont (it, struct mb_sinproc, item);
+        mb_sinproc_stop (sp);
+        mb_list_erase (&self->sinprocs, &sp->item);
+        mb_sinproc_term (sp);
+        mb_free (sp);
+    }
+}
+
+static void mb_cinproc_stop (void *p)
+{
+    struct mb_cinproc *self = (struct mb_cinproc *) p;
+
+    self->state = MB_CINPROC_STATE_STOPPING;
+
+    mb_cinproc_free_sinprocs (self);
 
     mb_ins_disconnect (&self->item);
 
@@ -127,14 +162,10 @@ static void mb_cinproc_destroy (void *p)
 {
     struct mb_cinproc *self = (struct mb_cinproc *) p;
 
-    if (self->sinproc) {
-        mb_sinproc_stop (self->sinproc);
-        mb_sinproc_term (self->sinproc);
-        mb_free (self->sinproc);
-        self->sinproc = NULL;
-    }
+    mb_cinproc_free_sinprocs (self);
 
     mb_ins_disconnect (&self->item);
+    mb_list_term (&self->sinprocs);
     mb_ins_item_term (&self->item);
     mb_fsm_term (&self->fsm);
     mb_free (self);
